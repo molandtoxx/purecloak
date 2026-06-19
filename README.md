@@ -48,7 +48,25 @@ PureCloak 支持两种工作空间模式：
 - 50GB+ 磁盘空间（Chromium 源码 + 构建缓存）
 - 16GB+ 内存（推荐 32GB）
 
-### 克隆与构建
+### 一键构建脚本
+
+```bash
+# Linux (x86_64)
+bash scripts/build-linux.sh
+
+# macOS (自动检测 Intel/Apple Silicon)
+bash scripts/build-macos.sh
+
+# Android ARM64 (从 Linux 交叉编译)
+bash scripts/build-android.sh
+
+# Windows (PowerShell)
+.\scripts\build-windows.ps1
+```
+
+每个脚本支持 `--debug`、`--skip-sync`、`--jobs N` 等选项。详见脚本头部的使用说明。
+
+### 手动构建（以 Linux 为例）
 
 ```bash
 # 1. 克隆仓库
@@ -56,12 +74,21 @@ git clone https://github.com/molandtoxx/purecloak.git
 cd purecloak
 
 # 2. 安装 Chromium 构建依赖
-./chromium_src/build/install-build-deps.sh
+sudo ./chromium_src/build/install-build-deps.sh
 
-# 3. 同步 Chromium 源码与依赖（可能需要数小时）
-gclient sync -D
+# 3. 同步 Chromium 源码与依赖（约 30-60 分钟）
+# 注意：gclient sync 可能覆盖 PureCloak 自定义文件，
+# 构建脚本会自动恢复；手动构建时需用 git checkout 恢复
+sed -i 's/"managed": False/"managed": True/' .gclient
+gclient sync --shallow --nohooks
+sed -i 's/"managed": True/"managed": False/' .gclient
 
-# 4. 配置 GN 构建参数
+# 恢复 PureCloak 修改的文件
+git checkout -- chromium_src/chrome/app/chromium_strings.grd
+git checkout -- chromium_src/chrome/browser/ui/browser_command_controller.cc
+git checkout -- chromium_src/chrome/browser/ui/views/profiles/profile_menu_view.cc
+
+# 4. 配置 GN 构建参数（必须传入 is_purecloak=true）
 gn gen out/purecloak --args='
   is_debug=false
   is_purecloak=true
@@ -78,14 +105,9 @@ autoninja -C out/purecloak chrome
 
 # 6. 运行
 ./out/purecloak/chrome
-
-# 或者使用一键构建脚本
-./chromium_src/purecloak/branding/build.sh
 ```
 
-### 配置 `is_purecloak=true`
-
-编译时必须传入 `is_purecloak=true`，此参数通过 `purecloak.gni` 控制 PureCloak 自定义代码的编译入口。未设置此参数时，PureCloak 代码完全不会进入编译。
+> `is_purecloak=true` 通过 `purecloak.gni` 控制 PureCloak 自定义代码的编译入口。未设置时 PureCloak 代码完全不会进入编译。
 
 ---
 
@@ -167,6 +189,7 @@ chromium_src/
     ├── app/theme/chromium/             # 品牌图标
     └── browser/ui/                     # Profile 菜单等 UI 修改点
 
+scripts/                                # 跨平台编译脚本
 tests/                                  # Python + Playwright E2E 测试
 docs/                                   # 设计文档 & 规范
 PureCloak-PRD.md                        # 产品需求文档
@@ -182,6 +205,55 @@ PureCloak 对于 Chromium 源码树的侵入非常克制——仅修改了以下
 - `chrome/browser/ui/views/profiles/profile_menu_view.cc` — 替换 "profiles" 文字为 "workspaces"
 
 其余所有功能通过 `chrome/browser/purecloak/` 独立模块以标准的 GN 依赖注入方式实现，不破坏 Chromium 原始代码结构。
+
+---
+
+## 跨平台构建
+
+| 平台 | 脚本 | 构建方式 | 要求 |
+|------|------|----------|------|
+| 🐧 **Linux x86_64** | `scripts/build-linux.sh` | 原生编译 | Ubuntu 22.04+, 50GB 磁盘, 16GB RAM |
+| 🍎 **macOS ARM64/x64** | `scripts/build-macos.sh` | 原生编译 | Xcode 15+, macOS 13+, 60GB 磁盘 |
+| 🪟 **Windows x86_64** | `scripts/build-windows.ps1` | 原生编译 | VS 2022+, Win 10 SDK+, 60GB 磁盘 |
+| 🤖 **Android ARM64** | `scripts/build-android.sh` | 从 Linux 交叉编译 | Linux + Android NDK, 50GB 磁盘 |
+
+### 使用方法
+
+```bash
+# Linux
+bash scripts/build-linux.sh
+
+# macOS (Apple Silicon)
+bash scripts/build-macos.sh --arm64
+
+# macOS (Intel)
+bash scripts/build-macos.sh --x64
+
+# Android (从 Linux 交叉编译)
+bash scripts/build-android.sh
+```
+
+### 脚本选项
+
+所有脚本支持以下通用参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--debug` | Debug 构建（默认 release） |
+| `--out DIR` | 输出目录 |
+| `--skip-sync` | 跳过 gclient sync（使用已有源码） |
+| `--skip-tests` | 跳过测试编译和运行 |
+| `--jobs N` | 并行编译任务数 |
+| `--no-strip` | 保留调试符号 |
+
+### 构建产物
+
+构建完成后，产物自动打包到 `dist/` 目录：
+
+- `dist/purecloak-linux-x86_64.tar.gz`
+- `dist/purecloak-macos-arm64.dmg`（或 `x64`）
+- `dist/purecloak-windows-x64.zip`
+- `dist/purecloak-android-arm64.tar.gz`（内含 APK）
 
 ---
 

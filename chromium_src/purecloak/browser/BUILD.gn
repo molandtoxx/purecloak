@@ -1,0 +1,60 @@
+# Copyright 2026 PureCloak Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//build/config/features.gni")
+import("//purecloak/purecloak.gni")
+
+assert(is_purecloak)
+
+source_set("browser") {
+  sources = [
+    "purecloak_webui_registrar.cc",
+    "purecloak_webui_registrar.h",
+    "ui/views/side_panel/purecloak_side_panel_coordinator.cc",
+    "ui/views/side_panel/purecloak_side_panel_coordinator.h",
+    "ui/views/side_panel/purecloak_side_panel_view.cc",
+    "ui/views/side_panel/purecloak_side_panel_view.h",
+    "ui/views/side_panel/workspace_management_dialogs.cc",
+    "ui/views/side_panel/workspace_management_dialogs.h",
+    "ui/webui/purecloak_handler.cc",
+    "ui/webui/purecloak_handler.h",
+    "ui/webui/purecloak_ui.cc",
+    "ui/webui/purecloak_ui.h",
+    "workspace_launcher.cc",
+    "workspace_launcher.h",
+    "workspace_launcher_watchdog.cc",
+    "workspace_launcher_watchdog.h",
+    "workspace_profile_applier.cc",
+    "workspace_profile_applier.h",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/profiles:profiles",
+    "//chrome/browser/ui/side_panel",
+    "//content/public/browser",
+    "//purecloak/browser/profiles",
+    "//purecloak/content",
+    "//purecloak/resources",
+    "//ui/base",
+    "//ui/color",
+    "//ui/views",
+    "//ui/webui",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "workspace_launcher_unittest.cc",
+    "workspace_manager_unittest.cc",
+  ]
+  deps = [
+    ":browser",
+    "//base",
+    "//content/test:test_support",
+    "//purecloak/browser/profiles",
+    "//testing/gtest",
+  ]
+}

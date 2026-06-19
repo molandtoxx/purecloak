@@ -1,0 +1,28 @@
+# ============================================
+# PureCloak — Chromium-based anti-detection browser
+# ============================================
+
+# Chromium source tree (78GB, managed via gclient)
+chromium_src/
+
+# Build output
+out/
+
+# Depot tools & dependencies
+depot_tools/
+.cipd/
+
+# Node
+node_modules/
+.playwright-mcp/
+
+# OpenCode
+.omo/
+.opencode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.png

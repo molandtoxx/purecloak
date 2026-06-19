@@ -1,0 +1,1085 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>PureCloak</title>
+  <style>
+    :root {
+      --cr-primary-color: #1a73e8;
+      --cr-bg: #fff;
+      --cr-bg-secondary: #f8f9fa;
+      --cr-border: #dadce0;
+      --cr-text: #202124;
+      --cr-text-secondary: #5f6368;
+      --cr-danger: #d93025;
+      --cr-ws-header: #e8f0fe;
+      --cr-radius: 12px;
+      --cr-shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --cr-primary-color: #8ab4f8;
+        --cr-bg: #202124;
+        --cr-bg-secondary: #292a2d;
+        --cr-border: #3c4043;
+        --cr-text: #e8eaed;
+        --cr-text-secondary: #9aa0a6;
+        --cr-danger: #f28b82;
+        --cr-ws-header: #1e3a5f;
+        --cr-shadow: 0 1px 3px rgba(0,0,0,.3);
+      }
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--cr-bg);
+      color: var(--cr-text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      background: var(--cr-bg);
+      border-bottom: 1px solid var(--cr-border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--cr-text);
+    }
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      padding: 24px 32px;
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Section */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-header h2 {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--cr-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: 1px solid var(--cr-border);
+      border-radius: 8px;
+      background: var(--cr-bg);
+      color: var(--cr-text);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--cr-bg-secondary); }
+    .btn-primary {
+      background: var(--cr-primary-color);
+      color: #fff;
+      border-color: var(--cr-primary-color);
+    }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-danger { color: var(--cr-danger); border-color: var(--cr-danger); }
+    .btn-danger:hover { background: #fce8e6; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-icon {
+      padding: 4px 8px;
+      border: none;
+      background: transparent;
+      color: var(--cr-text-secondary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .btn-icon:hover { background: var(--cr-bg-secondary); color: var(--cr-text); }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--cr-text-secondary);
+      border: 2px dashed var(--cr-border);
+      border-radius: var(--cr-radius);
+    }
+    .empty-state p { font-size: 14px; margin-top: 8px; }
+
+    /* Workspace card */
+    .ws-card {
+      border: 1px solid var(--cr-border);
+      border-radius: var(--cr-radius);
+      margin-bottom: 12px;
+      background: var(--cr-bg);
+      box-shadow: var(--cr-shadow);
+      overflow: hidden;
+    }
+    .ws-header {
+      display: flex;
+      align-items: center;
+      padding: 14px 16px;
+      gap: 12px;
+      user-select: none;
+    }
+    .ws-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .ws-icon.normal { background: var(--cr-primary-color); }
+    .ws-icon.fingerprint { background: #9334e6; }
+    .ws-info { flex: 1; min-width: 0; }
+    .ws-name {
+      font-size: 14px;
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ws-meta {
+      font-size: 12px;
+      color: var(--cr-text-secondary);
+      margin-top: 2px;
+    }
+    .ws-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--cr-bg-secondary);
+      color: var(--cr-text-secondary);
+    }
+    .ws-actions {
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .ws-header:hover .ws-actions { opacity: 1; }
+
+    /* Dialog */
+    .dialog-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.4);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .dialog-overlay.active { display: flex; }
+    .dialog {
+      background: var(--cr-bg);
+      border-radius: var(--cr-radius);
+      padding: 24px;
+      min-width: 360px;
+      max-width: 480px;
+      box-shadow: 0 16px 48px rgba(0,0,0,.2);
+    }
+    .dialog h3 { font-size: 16px; font-weight: 500; margin-bottom: 16px; }
+    .dialog-field {
+      margin-bottom: 12px;
+    }
+    .dialog-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--cr-text-secondary);
+      margin-bottom: 4px;
+    }
+    .dialog-field input, .dialog-field select {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--cr-border);
+      border-radius: 6px;
+      background: var(--cr-bg);
+      color: var(--cr-text);
+      font-size: 13px;
+      outline: none;
+    }
+    .dialog-field input:focus, .dialog-field select:focus {
+      border-color: var(--cr-primary-color);
+      box-shadow: 0 0 0 2px rgba(26,115,232,.15);
+    }
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+    }
+
+    /* Toast */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #323232;
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 2000;
+      opacity: 0;
+      transition: opacity .3s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+
+    /* Loading */
+    .loading {
+      text-align: center;
+      padding: 48px;
+      color: var(--cr-text-secondary);
+    }
+    .spinner {
+      width: 24px; height: 24px;
+      border: 3px solid var(--cr-border);
+      border-top-color: var(--cr-primary-color);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      margin: 0 auto 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Launch button */
+    .btn-launch {
+      background: #34a853;
+      color: #fff;
+      border-color: #34a853;
+    }
+    .btn-launch:hover { filter: brightness(1.1); }
+
+    /* Workspace status panel */
+    .ws-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-top: 1px solid var(--cr-border);
+      font-size: 12px;
+    }
+    .status-indicator {
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-indicator.running { color: #34a853; }
+    .status-indicator.stopped { color: var(--cr-text-secondary); }
+    .status-indicator.crashed { color: var(--cr-danger); }
+    .status-indicator.starting { color: #fbbc04; animation: pulse 1.5s infinite; }
+    .status-meta { color: var(--cr-text-secondary); flex: 1; }
+    .btn-stop { color: var(--cr-danger); border-color: var(--cr-danger); }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    /* Collapsible sections */
+    .collapse-section {
+      margin: 8px 0;
+      border: 1px solid var(--cr-border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .collapse-section summary {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--cr-primary-color);
+      cursor: pointer;
+      user-select: none;
+      background: var(--cr-bg-secondary);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .collapse-section summary::-webkit-details-marker { display: none; }
+    .collapse-section summary::before {
+      content: '\u25b6';
+      font-size: 10px;
+      transition: transform .15s;
+    }
+    .collapse-section[open] summary::before {
+      transform: rotate(90deg);
+    }
+    .collapse-section summary:hover { filter: brightness(0.97); }
+    .collapse-content { padding: 12px; }
+    .field-row { display: flex; gap: 8px; }
+    .field-row .dialog-field { flex: 1; }
+
+    /* Checkbox field */
+    .checkbox-field label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--cr-text);
+    }
+    .checkbox-field input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>PureCloak</h1>
+    <div class="header-actions">
+      <button class="btn btn-primary" id="btnCreateWs">+ New Workspace</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="section-header">
+      <h2>Workspaces</h2>
+    </div>
+    <div id="workspaceList"></div>
+    <div id="emptyState" class="empty-state" style="display:none">
+      <div style="font-size:40px;margin-bottom:8px">&#x1f4cb;</div>
+      <p>No workspaces yet. Create your first workspace to get started.</p>
+    </div>
+    <div id="loadingState" class="loading">
+      <div class="spinner"></div>
+      <p>Loading workspaces...</p>
+    </div>
+  </div>
+
+  <!-- Create workspace dialog -->
+  <div class="dialog-overlay" id="createWsDialog">
+    <div class="dialog">
+      <h3>Create Workspace</h3>
+      <div class="dialog-field">
+        <label>Name</label>
+        <input type="text" id="wsNameInput" placeholder="My Workspace" autofocus>
+      </div>
+      <div class="dialog-field">
+        <label>Type</label>
+        <select id="wsTypeSelect">
+          <option value="normal">Normal</option>
+          <option value="fingerprint">Fingerprint</option>
+        </select>
+      </div>
+
+      <details class="collapse-section">
+        <summary>Fingerprint Settings</summary>
+        <div class="collapse-content">
+          <div class="dialog-field">
+            <label>User Agent</label>
+            <input type="text" id="wsUserAgent" placeholder="Auto-detect">
+          </div>
+          <div class="field-row">
+            <div class="dialog-field">
+              <label>Screen Width</label>
+              <input type="number" id="wsScreenWidth" value="1920">
+            </div>
+            <div class="dialog-field">
+              <label>Screen Height</label>
+              <input type="number" id="wsScreenHeight" value="1080">
+            </div>
+          </div>
+          <div class="dialog-field">
+            <label>Hardware Concurrency</label>
+            <input type="number" id="wsHwConcurrency" value="0" placeholder="0 = Auto">
+          </div>
+          <div class="dialog-field">
+            <label>Platform</label>
+            <select id="wsPlatform">
+              <option value="">Auto</option>
+              <option value="windows">Windows</option>
+              <option value="macos">macOS</option>
+              <option value="linux">Linux</option>
+            </select>
+          </div>
+          <div class="dialog-field">
+            <label>Color Scheme</label>
+            <select id="wsColorScheme">
+              <option value="">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="no-preference">No Preference</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <details class="collapse-section">
+        <summary>Network Settings</summary>
+        <div class="collapse-content">
+          <div class="dialog-field">
+            <label>Proxy</label>
+            <input type="text" id="wsProxy" placeholder="http://user:pass@host:port">
+          </div>
+          <div class="dialog-field">
+            <label>Timezone</label>
+            <input type="text" id="wsTimezone" placeholder="America/New_York">
+          </div>
+          <div class="dialog-field">
+            <label>Locale</label>
+            <input type="text" id="wsLocale" placeholder="en-US">
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="wsGeoip">
+              GeoIP auto-detect
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="collapse-section">
+        <summary>Behavior</summary>
+        <div class="collapse-content">
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="wsHeadless">
+              Headless mode
+            </label>
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="wsClipboardSync" checked>
+              Clipboard sync
+            </label>
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="wsAutoLaunch">
+              Auto-launch on startup
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <div class="dialog-actions">
+        <button class="btn" id="cancelCreateWs">Cancel</button>
+        <button class="btn btn-primary" id="confirmCreateWs">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit workspace dialog -->
+  <div class="dialog-overlay" id="editWsDialog">
+    <div class="dialog">
+      <h3>Edit Workspace</h3>
+      <input type="hidden" id="editWsId">
+      <div class="dialog-field">
+        <label>Name</label>
+        <input type="text" id="editWsNameInput" autofocus>
+      </div>
+
+      <details class="collapse-section">
+        <summary>Fingerprint Settings</summary>
+        <div class="collapse-content">
+          <div class="dialog-field">
+            <label>User Agent</label>
+            <input type="text" id="editWsUserAgent" placeholder="Auto-detect">
+          </div>
+          <div class="field-row">
+            <div class="dialog-field">
+              <label>Screen Width</label>
+              <input type="number" id="editWsScreenWidth" value="1920">
+            </div>
+            <div class="dialog-field">
+              <label>Screen Height</label>
+              <input type="number" id="editWsScreenHeight" value="1080">
+            </div>
+          </div>
+          <div class="dialog-field">
+            <label>Hardware Concurrency</label>
+            <input type="number" id="editWsHwConcurrency" value="0" placeholder="0 = Auto">
+          </div>
+          <div class="dialog-field">
+            <label>Platform</label>
+            <select id="editWsPlatform">
+              <option value="">Auto</option>
+              <option value="windows">Windows</option>
+              <option value="macos">macOS</option>
+              <option value="linux">Linux</option>
+            </select>
+          </div>
+          <div class="dialog-field">
+            <label>Color Scheme</label>
+            <select id="editWsColorScheme">
+              <option value="">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="no-preference">No Preference</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <details class="collapse-section">
+        <summary>Network Settings</summary>
+        <div class="collapse-content">
+          <div class="dialog-field">
+            <label>Proxy</label>
+            <input type="text" id="editWsProxy" placeholder="http://user:pass@host:port">
+          </div>
+          <div class="dialog-field">
+            <label>Timezone</label>
+            <input type="text" id="editWsTimezone" placeholder="America/New_York">
+          </div>
+          <div class="dialog-field">
+            <label>Locale</label>
+            <input type="text" id="editWsLocale" placeholder="en-US">
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="editWsGeoip">
+              GeoIP auto-detect
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <details class="collapse-section">
+        <summary>Behavior</summary>
+        <div class="collapse-content">
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="editWsHeadless">
+              Headless mode
+            </label>
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="editWsClipboardSync" checked>
+              Clipboard sync
+            </label>
+          </div>
+          <div class="dialog-field checkbox-field">
+            <label>
+              <input type="checkbox" id="editWsAutoLaunch">
+              Auto-launch on startup
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <div class="dialog-actions">
+        <button class="btn" id="cancelEditWs">Cancel</button>
+        <button class="btn btn-primary" id="confirmEditWs">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete confirmation dialog -->
+  <div class="dialog-overlay" id="confirmDeleteDialog">
+    <div class="dialog">
+      <h3 id="deleteDialogTitle">Confirm Delete</h3>
+      <p id="deleteDialogMsg" style="font-size:13px;color:var(--cr-text-secondary)">Are you sure?</p>
+      <div class="dialog-actions">
+        <button class="btn" id="cancelDelete">Cancel</button>
+        <button class="btn btn-danger" id="confirmDelete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // --- PureCloak WebUI callback shim (cr.webUIResponse bridge) ---
+    var cr = cr || {};
+    cr.callbackMap_ = {};
+    cr.webUIResponse = function(callbackId, isSuccess, response) {
+      var cb = cr.callbackMap_[callbackId];
+      if (cb) {
+        delete cr.callbackMap_[callbackId];
+        cb(response);
+      }
+    };
+
+    // --- Trusted Types policy (allow innerHTML for WebUI) ---
+    if (window.trustedTypes) {
+      try {
+        trustedTypes.createPolicy('default', {
+          createHTML: function(s) { return s; },
+          createScript: function(s) { return s; },
+          createScriptURL: function(s) { return s; }
+        });
+      } catch(e) {}
+    }
+
+    // --- State ---
+    let workspaces = [];
+
+    // Dialog state
+    let pendingEditWsId = null;
+    let pendingDeleteWsId = null;
+
+    // --- chrome.send wrapper with promise ---
+    let sendAsyncCounter = 0;
+    function sendAsync(name, ...args) {
+      return new Promise((resolve) => {
+        const cbName = 'callback_' + (++sendAsyncCounter);
+        cr.callbackMap_[cbName] = resolve;
+        chrome.send(name, [cbName, ...args]);
+      });
+    }
+
+    // --- Locale / i18n ---
+    const LOCALES = {};
+    const LOCALE_DATA = {
+      'zh': {
+        'PureCloak': 'PureCloak',
+        'Workspaces': '工作区',
+        '+ New Workspace': '+ 新建工作区',
+        'Loading workspaces...': '正在加载工作区...',
+        'No workspaces yet. Create your first workspace to get started.': '暂无工作区。创建您的第一个工作区以开始使用。',
+        'Create Workspace': '创建工作区',
+        'Name': '名称',
+        'Type': '类型',
+        'Normal': '普通',
+        'Fingerprint': '指纹',
+        'Cancel': '取消',
+        'Create': '创建',
+        'Edit': '编辑',
+        'Delete Workspace': '删除工作区',
+        'Workspace created': '工作区已创建',
+        'Please enter a name': '请输入名称',
+        'Failed to create workspace': '创建工作区失败',
+        'Confirm Delete': '确认删除',
+        'deleteWsMsg': '删除工作区"{name}"吗？此操作无法撤销。',
+        'Delete': '删除',
+        'Launch': '启动',
+        'Stopped': '已停止',
+        'Running': '运行中',
+        'Starting': '启动中',
+        'Crashed': '已崩溃',
+        'Restart': '重启',
+        'Stop': '停止',
+        'Workspace not found': '未找到工作区',
+        'Launching workspace': '正在启动工作区 "{name}"',
+        'Launch failed': '启动失败',
+        'Workspace renamed': '工作区已重命名',
+        'Workspace deleted': '工作区已删除',
+        'Workspace name': '工作区名称',
+        'is already running': '工作区"{name}"正在运行',
+        'stopWorkspaceMsg': '停止工作区"{name}"？这将终止浏览器进程。',
+        'Stopping workspace': '正在停止工作区 "{name}"',
+        'Workspace stopped': '工作区已停止',
+        'Stop failed': '停止失败',
+        'Workspace launched': '工作区"{name}"已在端口 {port} 启动',
+        'Fingerprint Settings': '指纹设置',
+        'Network Settings': '网络设置',
+        'Behavior': '行为',
+        'User Agent': '用户代理',
+        'Screen Width': '屏幕宽度',
+        'Screen Height': '屏幕高度',
+        'Hardware Concurrency': '硬件并发数',
+        'Platform': '平台',
+        'Auto': '自动',
+        'Windows': 'Windows',
+        'macOS': 'macOS',
+        'Linux': 'Linux',
+        'Color Scheme': '配色方案',
+        'Light': '浅色',
+        'Dark': '深色',
+        'No Preference': '无偏好',
+        'Proxy': '代理',
+        'Timezone': '时区',
+        'Locale': '区域',
+        'GeoIP auto-detect': 'GeoIP 自动检测',
+        'Headless mode': '无头模式',
+        'Clipboard sync': '剪贴板同步',
+        'Auto-launch on startup': '启动时自动运行',
+        'Edit Workspace': '编辑工作区',
+        'Save': '保存',
+        'Workspace saved': '工作区已保存',
+        'Failed to save workspace': '保存工作区失败',
+      }
+    };
+    for (const [lang, data] of Object.entries(LOCALE_DATA)) {
+      LOCALES[lang.toLowerCase()] = data;
+      const prefix = lang.split('-')[0].toLowerCase();
+      if (prefix !== lang.toLowerCase() && !LOCALES[prefix]) {
+        LOCALES[prefix] = data;
+      }
+    }
+
+    let _locale = {};
+
+    function detectLocale() {
+      const lang = (navigator.language || 'en').toLowerCase();
+      const keys = [lang, lang.split('-')[0]];
+      for (const key of keys) {
+        if (LOCALES[key]) return LOCALES[key];
+      }
+      return {};
+    }
+
+    function t(key) {
+      return _locale[key] || key;
+    }
+
+    function tFormat(key, replacements) {
+      let s = _locale[key] || key;
+      for (const [k, v] of Object.entries(replacements)) {
+        s = s.replace('{' + k + '}', v);
+      }
+      return s;
+    }
+
+    function applyLocale() {
+      _locale = detectLocale();
+
+      // Static HTML text
+      document.title = t('PureCloak');
+      document.querySelector('.header h1').textContent = t('PureCloak');
+      document.getElementById('btnCreateWs').textContent = t('+ New Workspace');
+      document.querySelector('.section-header h2').textContent = t('Workspaces');
+      document.querySelector('#emptyState p').textContent = t('No workspaces yet. Create your first workspace to get started.');
+      document.querySelector('#loadingState p').textContent = t('Loading workspaces...');
+
+      // Create workspace dialog
+      document.querySelector('#createWsDialog .dialog h3').textContent = t('Create Workspace');
+      document.querySelectorAll('#createWsDialog .dialog-field label')[0].textContent = t('Name');
+      document.querySelectorAll('#createWsDialog .dialog-field label')[1].textContent = t('Type');
+      document.getElementById('cancelCreateWs').textContent = t('Cancel');
+      document.getElementById('confirmCreateWs').textContent = t('Create');
+
+      // Type select options
+      const typeSelect = document.getElementById('wsTypeSelect');
+      typeSelect.options[0].textContent = t('Normal');
+      typeSelect.options[1].textContent = t('Fingerprint');
+
+      // Edit workspace dialog
+      document.querySelector('#editWsDialog .dialog h3').textContent = t('Edit Workspace');
+      document.querySelectorAll('#editWsDialog .dialog-field label')[0].textContent = t('Name');
+      document.getElementById('cancelEditWs').textContent = t('Cancel');
+      document.getElementById('confirmEditWs').textContent = t('Save');
+
+      // Delete confirmation dialog
+      document.getElementById('deleteDialogTitle').textContent = t('Confirm Delete');
+      document.getElementById('cancelDelete').textContent = t('Cancel');
+      document.getElementById('confirmDelete').textContent = t('Delete');
+    }
+
+    // --- Data loading ---
+    async function loadWorkspaces() {
+      document.getElementById('loadingState').style.display = '';
+      const wsList = await sendAsync('getAllWorkspaces');
+      workspaces = wsList || [];
+      document.getElementById('loadingState').style.display = 'none';
+      render();
+
+      // Check status for all workspaces in parallel
+      workspaces.forEach(async (ws) => {
+        try {
+          const statusInfo = await sendAsync('getWorkspaceStatus', ws.id);
+          if (statusInfo) {
+            renderWorkspaceStatus(ws.id, statusInfo);
+          }
+        } catch(e) {}
+      });
+    }
+
+    // --- Rendering ---
+    function render() {
+      const container = document.getElementById('workspaceList');
+      const empty = document.getElementById('emptyState');
+
+      if (workspaces.length === 0) {
+        container.innerHTML = '';
+        empty.style.display = '';
+        return;
+      }
+      empty.style.display = 'none';
+
+      let html = '';
+      for (const ws of workspaces) {
+        const isFingerprint = ws.type === 'fingerprint';
+        const typeLabel = isFingerprint ? t('Fingerprint') : t('Normal');
+        const iconClass = isFingerprint ? 'fingerprint' : 'normal';
+        const icon = isFingerprint ? '\u{1f575}' : '\u{1f4c1}';
+        const created = ws.created_at ? new Date(ws.created_at).toLocaleDateString() : '';
+        const escId = escapeHtmlAttr(ws.id);
+        const escName = escapeHtmlAttr(ws.name);
+
+        html += `<div class="ws-card" data-ws-id="${escId}">
+          <div class="ws-header">
+            <div class="ws-icon ${iconClass}">${icon}</div>
+            <div class="ws-info">
+              <div class="ws-name">${escapeHtml(ws.name)}</div>
+              <div class="ws-meta">${typeLabel}${created ? ' \u00b7 ' + t('Created') + ' ' + created : ''}</div>
+            </div>
+            <div class="ws-actions">
+              <button class="btn btn-sm btn-launch" title="${t('Launch')}" onclick="launchWorkspace('${escId}')">\u25b6 ${t('Launch')}</button>
+              <button class="btn-icon" title="${t('Edit')}" onclick="showEditWs('${escId}')">\u270f\ufe0f</button>
+              <button class="btn-icon" title="${t('Delete')}" onclick="showDeleteWs('${escId}','${escName}')">\ud83d\uddd1\ufe0f</button>
+            </div>
+          </div>
+          <div class="ws-status" id="ws-status-${escId}">
+            <span class="status-indicator stopped">○ ${t('Stopped')}</span>
+          </div>
+        </div>`;
+      }
+      container.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+      if (!s) return '';
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function escapeHtmlAttr(s) {
+      if (!s) return '';
+      return escapeHtml(s).replace(/'/g,'&#39;').replace(/\n/g,'&#10;');
+    }
+
+    // --- Workspace CRUD ---
+    document.getElementById('btnCreateWs').addEventListener('click', () => {
+      document.getElementById('wsNameInput').value = '';
+      document.getElementById('wsTypeSelect').value = 'normal';
+      document.getElementById('wsUserAgent').value = '';
+      document.getElementById('wsScreenWidth').value = '1920';
+      document.getElementById('wsScreenHeight').value = '1080';
+      document.getElementById('wsHwConcurrency').value = '0';
+      document.getElementById('wsPlatform').value = '';
+      document.getElementById('wsColorScheme').value = '';
+      document.getElementById('wsProxy').value = '';
+      document.getElementById('wsTimezone').value = '';
+      document.getElementById('wsLocale').value = '';
+      document.getElementById('wsGeoip').checked = false;
+      document.getElementById('wsHeadless').checked = false;
+      document.getElementById('wsClipboardSync').checked = true;
+      document.getElementById('wsAutoLaunch').checked = false;
+      // Close all collapse sections by default
+      document.querySelectorAll('#createWsDialog .collapse-section').forEach(s => s.removeAttribute('open'));
+      document.getElementById('createWsDialog').classList.add('active');
+      document.getElementById('wsNameInput').focus();
+    });
+    document.getElementById('cancelCreateWs').addEventListener('click', () => {
+      document.getElementById('createWsDialog').classList.remove('active');
+    });
+
+    function collectWsFormData(prefix) {
+      return {
+        name: document.getElementById(prefix + 'NameInput').value.trim(),
+        type: document.getElementById(prefix + 'TypeSelect').value,
+        user_agent: document.getElementById(prefix + 'UserAgent').value.trim(),
+        screen_width: parseInt(document.getElementById(prefix + 'ScreenWidth').value) || 1920,
+        screen_height: parseInt(document.getElementById(prefix + 'ScreenHeight').value) || 1080,
+        hardware_concurrency: parseInt(document.getElementById(prefix + 'HwConcurrency').value) || 0,
+        platform: document.getElementById(prefix + 'Platform').value,
+        color_scheme: document.getElementById(prefix + 'ColorScheme').value,
+        proxy: document.getElementById(prefix + 'Proxy').value.trim(),
+        timezone: document.getElementById(prefix + 'Timezone').value.trim(),
+        locale: document.getElementById(prefix + 'Locale').value.trim(),
+        geoip: document.getElementById(prefix + 'Geoip').checked,
+        headless: document.getElementById(prefix + 'Headless').checked,
+        clipboard_sync: document.getElementById(prefix + 'ClipboardSync').checked,
+        auto_launch: document.getElementById(prefix + 'AutoLaunch').checked,
+      };
+    }
+
+    document.getElementById('confirmCreateWs').addEventListener('click', async () => {
+      const ws = collectWsFormData('ws');
+      if (!ws.name) { showToast(t('Please enter a name')); return; }
+      document.getElementById('createWsDialog').classList.remove('active');
+      try {
+        await sendAsync('createWorkspace', ws);
+        showToast(t('Workspace created'));
+        await loadWorkspaces();
+      } catch (e) {
+        console.error('createWorkspace failed:', e);
+        showToast(t('Failed to create workspace') + ': ' + e.message);
+      }
+    });
+
+    function showEditWs(id) {
+      const ws = workspaces.find(w => w.id === id);
+      if (!ws) return;
+      pendingEditWsId = id;
+      document.getElementById('editWsId').value = id;
+      document.getElementById('editWsNameInput').value = ws.name || '';
+      document.getElementById('editWsUserAgent').value = ws.user_agent || '';
+      document.getElementById('editWsScreenWidth').value = ws.screen_width || '1920';
+      document.getElementById('editWsScreenHeight').value = ws.screen_height || '1080';
+      document.getElementById('editWsHwConcurrency').value = ws.hardware_concurrency || '0';
+      document.getElementById('editWsPlatform').value = ws.platform || '';
+      document.getElementById('editWsColorScheme').value = ws.color_scheme || '';
+      document.getElementById('editWsProxy').value = ws.proxy || '';
+      document.getElementById('editWsTimezone').value = ws.timezone || '';
+      document.getElementById('editWsLocale').value = ws.locale || '';
+      document.getElementById('editWsGeoip').checked = !!ws.geoip;
+      document.getElementById('editWsHeadless').checked = !!ws.headless;
+      document.getElementById('editWsClipboardSync').checked = ws.clipboard_sync !== false;
+      document.getElementById('editWsAutoLaunch').checked = !!ws.auto_launch;
+      // Close all collapse sections by default
+      document.querySelectorAll('#editWsDialog .collapse-section').forEach(s => s.removeAttribute('open'));
+      document.getElementById('editWsDialog').classList.add('active');
+      document.getElementById('editWsNameInput').focus();
+    }
+    document.getElementById('cancelEditWs').addEventListener('click', () => {
+      document.getElementById('editWsDialog').classList.remove('active');
+    });
+    document.getElementById('confirmEditWs').addEventListener('click', async () => {
+      if (!pendingEditWsId) return;
+      const ws = collectWsFormData('editWs');
+      ws.id = pendingEditWsId;
+      document.getElementById('editWsDialog').classList.remove('active');
+      try {
+        await sendAsync('updateWorkspace', ws);
+        showToast(t('Workspace saved'));
+        pendingEditWsId = null;
+        await loadWorkspaces();
+      } catch (e) {
+        console.error('updateWorkspace failed:', e);
+        showToast(t('Failed to save workspace') + ': ' + e.message);
+      }
+    });
+
+    function showDeleteWs(id, name) {
+      pendingDeleteWsId = id;
+      document.getElementById('deleteDialogTitle').textContent = t('Delete Workspace');
+      document.getElementById('deleteDialogMsg').textContent = tFormat('deleteWsMsg', { name });
+      document.getElementById('confirmDeleteDialog').classList.add('active');
+    }
+    document.getElementById('cancelDelete').addEventListener('click', () => {
+      document.getElementById('confirmDeleteDialog').classList.remove('active');
+    });
+    document.getElementById('confirmDelete').addEventListener('click', async () => {
+      const id = pendingDeleteWsId;
+      pendingDeleteWsId = null;
+      if (!id) return;
+      document.getElementById('confirmDeleteDialog').classList.remove('active');
+      try {
+        await sendAsync('deleteWorkspace', id);
+        showToast(t('Workspace deleted'));
+        await loadWorkspaces();
+      } catch (e) {
+        console.error('delete failed:', e);
+        showToast(t('Workspace deleted') + ': ' + e.message);
+      }
+    });
+
+    // --- Workspace Launch & Status ---
+
+    async function launchWorkspace(wsId) {
+      const ws = workspaces.find(w => w.id === wsId);
+      if (!ws) { showToast(t('Workspace not found')); return; }
+
+      // Check if already running
+      const statusInfo = await sendAsync('getWorkspaceStatus', wsId);
+      if (statusInfo && statusInfo.status === 'running') {
+        showToast(tFormat('is already running', { name: ws.name }));
+        return;
+      }
+
+      showToast(tFormat('Launching workspace', { name: ws.name }));
+      try {
+        const result = await sendAsync('launchWorkspace', wsId);
+        if (result.success === false) {
+          showToast(t('Launch failed') + ': ' + (result.error || 'Unknown error'));
+          return;
+        }
+        showToast(tFormat('Workspace launched', { name: ws.name, port: result.cdp_port }));
+        renderWorkspaceStatus(wsId, result);
+      } catch (e) {
+        showToast(t('Launch failed') + ': ' + e.message);
+      }
+    }
+
+    async function stopWorkspace(wsId) {
+      const ws = workspaces.find(w => w.id === wsId);
+      if (!ws) return;
+
+      if (!confirm(tFormat('stopWorkspaceMsg', { name: ws.name }))) return;
+
+      showToast(tFormat('Stopping workspace', { name: ws.name }));
+      try {
+        await sendAsync('stopWorkspace', wsId);
+        showToast(t('Workspace stopped'));
+        renderWorkspaceStatus(wsId, { status: 'stopped' });
+      } catch (e) {
+        showToast(t('Stop failed') + ': ' + e.message);
+      }
+    }
+
+    async function getWorkspaceStatus(wsId) {
+      try {
+        return await sendAsync('getWorkspaceStatus', wsId);
+      } catch (e) {
+        return { status: 'stopped' };
+      }
+    }
+
+    function renderWorkspaceStatus(wsId, statusInfo) {
+      const statusEl = document.getElementById('ws-status-' + wsId);
+      if (!statusEl) return;
+
+      const status = statusInfo.status || 'stopped';
+      let html = '';
+
+      if (status === 'running') {
+        const uptime = statusInfo.uptime_seconds > 60
+          ? Math.floor(statusInfo.uptime_seconds / 60) + 'm'
+          : statusInfo.uptime_seconds + 's';
+        html = `<span class="status-indicator running">● ${t('Running')}</span>
+                <span class="status-meta">CDP: ${statusInfo.cdp_port || '—'} · uptime ${uptime}</span>
+                <button class="btn btn-sm btn-stop" onclick="event.stopPropagation();stopWorkspace('${wsId}')">■ ${t('Stop')}</button>`;
+      } else if (status === 'starting') {
+        html = `<span class="status-indicator starting">◌ ${t('Starting')}</span>`;
+      } else if (status === 'crashed') {
+        html = `<span class="status-indicator crashed">● ${t('Crashed')}</span>
+                <button class="btn btn-sm btn-launch" onclick="event.stopPropagation();launchWorkspace('${wsId}')">↻ ${t('Restart')}</button>`;
+      } else {
+        html = `<span class="status-indicator stopped">○ ${t('Stopped')}</span>`;
+      }
+
+      statusEl.innerHTML = html;
+    }
+
+    // Called from C++ Watchdog via CallJavascriptFunction
+    function onWorkspaceStatusChange(wsId, status, details) {
+      const ws = workspaces.find(w => w.id === wsId);
+      if (ws) { ws.status = status; }
+      renderWorkspaceStatus(wsId, details || { status });
+    }
+
+    // --- Toast ---
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 2500);
+    }
+
+    // --- Init ---
+    document.addEventListener('DOMContentLoaded', () => {
+      applyLocale();
+      loadWorkspaces();
+    });
+  </script>
+</body>
+</html>

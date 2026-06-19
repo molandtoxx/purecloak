@@ -1,0 +1,27 @@
+# Copyright 2026 PureCloak Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//purecloak/purecloak.gni")
+
+group("purecloak") {
+  deps = [
+    "//purecloak/browser",
+    "//purecloak/common:buildflags",
+    "//purecloak/content",
+    "//purecloak/resources",
+  ]
+}
+
+executable("purecloak_unittests") {
+  testonly = true
+  sources = [
+    "purecloak_test_main.cc",
+  ]
+  deps = [
+    "//base",
+    "//purecloak/browser:unit_tests",
+    "//purecloak/content:unit_tests",
+    "//testing/gtest",
+  ]
+}

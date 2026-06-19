@@ -1,0 +1,10 @@
+# Copyright 2026 PureCloak Authors
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+declare_args() {
+  # Enables PureCloak dual-mode workspace isolation.
+  # When true, PureCloak code is compiled into the Chrome binary.
+  # When false (default), PureCloak is entirely disabled.
+  is_purecloak = false
+}

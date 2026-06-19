@@ -1,0 +1,16 @@
+# Copyright 2026 PureCloak Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//tools/grit/grit_rule.gni")
+
+grit("resources") {
+  source = "purecloak_resources.grd"
+
+  outputs = [
+    "grit/purecloak_resources.h",
+    "grit/purecloak_resources_map.cc",
+    "grit/purecloak_resources_map.h",
+    "purecloak_resources.pak",
+  ]
+}

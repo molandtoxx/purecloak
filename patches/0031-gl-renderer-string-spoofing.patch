@@ -1,0 +1,66 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:05:00 +0800
+Subject: Normalize GL renderer/vendor strings to prevent GPU fingerprinting
+
+Modifies CollectGraphicsInfoGL() to override the real GL_RENDERER,
+GL_VENDOR, and GL_VERSION strings with values from PureCloakSeed
+(--fingerprint-gpu-renderer and --fingerprint-gpu-vendor) when
+PureCloak noise is enabled.
+
+The GL version is also normalized to a common baseline ("4.6.0 NVIDIA
+546.17") to prevent fingerprinting via driver version strings that
+reveal specific GPU models and driver versions.
+
+This ensures consistent GPU identification across the entire Chrome
+stack (WebGL, angle, GL_RENDERER, GPUInfo.gpu.device_string) so that
+fingerprinting scripts cannot detect mismatches between layers.
+
+---
+ gpu/config/gpu_info_collector.cc | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/gpu/config/gpu_info_collector.cc b/gpu/config/gpu_info_collector.cc
+--- a/gpu/config/gpu_info_collector.cc
++++ b/gpu/config/gpu_info_collector.cc
+@@ -26,6 +26,13 @@
+ #include "build/build_config.h"
+ #include "gpu/config/gpu_switches.h"
+ #include "gpu/config/webgpu_blocklist_impl.h"
++
++// PureCloak: GPU info spoofing
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ #include "skia/buildflags.h"
+ #include "third_party/abseil-cpp/absl/cleanup/cleanup.h"
+ #include "third_party/angle/src/gpu_info_util/SystemInfo.h"  // nogncheck
+@@ -610,6 +617,27 @@ bool CollectGraphicsInfoGL(GPUInfo* gpu_info, gl::GLDisplay* display) {
+   gpu_info->gl_renderer = GetGLString(GL_RENDERER);
+   gpu_info->gl_vendor = GetGLString(GL_VENDOR);
+   gpu_info->gl_version = GetGLString(GL_VERSION);
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: normalize GL renderer/vendor/version to prevent GPU fingerprinting
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    const auto& spoofed_renderer =
++        purecloak::PureCloakSeed::GetInstance()->gpu_renderer();
++    if (!spoofed_renderer.empty()) {
++      gpu_info->gl_renderer = spoofed_renderer;
++      gpu_info->gpu.device_string = spoofed_renderer;
++    }
++    const auto& spoofed_vendor =
++        purecloak::PureCloakSeed::GetInstance()->gpu_vendor();
++    if (!spoofed_vendor.empty()) {
++      gpu_info->gl_vendor = spoofed_vendor;
++      gpu_info->gpu.vendor_string = spoofed_vendor;
++    }
++    // Normalize GL version to a common baseline
++    gpu_info->gl_version = "4.6.0 NVIDIA 546.17";
++  }
++#endif
++
+   std::string glsl_version_string = GetGLString(GL_SHADING_LANGUAGE_VERSION);
+ 
+   gpu_info->gl_extensions = gl::GetGLExtensionsFromCurrentContext();

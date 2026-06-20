@@ -1,0 +1,49 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:30:00 +0800
+Subject: Spoof WebGPU adapter vendor/device IDs
+
+Modifies Dawn's APIGetInfo() to spoof the GPU adapter vendor ID,
+device ID, and adapter type when PureCloak noise is enabled.
+
+This prevents WebGPU-based GPU fingerprinting that can distinguish
+real GPUs from virtual/headless/Docker environments. All adapters
+report as a NVIDIA GeForce RTX 4090 (vendor=0x10DE, device=0x2684,
+type=DiscreteGPU) when noise is active.
+
+---
+ third_party/dawn/src/dawn/native/Adapter.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+--- a/third_party/dawn/src/dawn/native/Adapter.cpp
++++ b/third_party/dawn/src/dawn/native/Adapter.cpp
+@@ -38,6 +38,12 @@
+ #include "partition_alloc/pointers/raw_ptr.h"
+ #include "src/dawn/common/Math.h"
+ #include "src/dawn/common/StringViewUtils.h"
++
++// PureCloak: WebGPU adapter info spoofing
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "src/dawn/native/ChainUtils.h"
+ #include "src/dawn/native/Device.h"
+ #include "src/dawn/native/Error.h"
+@@ -202,6 +208,16 @@ wgpu::Status AdapterBase::APIGetInfo(AdapterInfo* info) const {
+     DAWN_CHECK(info->subgroupMaxSize == 0 || IsPowerOfTwo(info->subgroupMaxSize));
+     DAWN_CHECK(info->subgroupMinSize == 0 || IsPowerOfTwo(info->subgroupMinSize));
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++    // PureCloak: spoof adapter vendor/device IDs and adapter type from seed
++    if (auto* seed = purecloak::PureCloakSeed::GetInstance();
++        seed->noise_enabled()) {
++        info->vendorID = 0x10DE;  // NVIDIA
++        info->deviceID = 0x2684;  // GeForce RTX 4090
++        info->adapterType = wgpu::AdapterType::DiscreteGPU;
++    }
++#endif
++
+     return wgpu::Status::Success;
+ }
+ 

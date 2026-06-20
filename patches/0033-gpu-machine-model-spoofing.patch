@@ -1,0 +1,33 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:15:00 +0800
+Subject: Normalize GPU machine model info to prevent hardware fingerprinting
+
+Overrides machine_model_name and machine_model_version in
+FillGPUInfoFromSystemInfo() when PureCloak noise is enabled.
+Both values are set to generic defaults ("Default" / "1.0") to
+prevent hardware-identifying machine model strings from leaking
+through the GPU info API.
+
+---
+ gpu/config/gpu_info_collector.cc | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/gpu/config/gpu_info_collector.cc b/gpu/config/gpu_info_collector.cc
+--- a/gpu/config/gpu_info_collector.cc
++++ b/gpu/config/gpu_info_collector.cc
+@@ -795,6 +795,15 @@ void FillGPUInfoFromSystemInfo(GPUInfo* gpu_info,
+ 
+   gpu_info->machine_model_name = system_info->machineModelName;
+   gpu_info->machine_model_version = system_info->machineModelVersion;
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: normalize machine model info to prevent hardware fingerprinting.
++  // Use a consistent model name when noise is enabled.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    gpu_info->machine_model_name = "Default";
++    gpu_info->machine_model_version = "1.0";
++  }
++#endif
+ }
+ 
+ void CollectGraphicsInfoForTesting(GPUInfo* gpu_info) {

@@ -1,0 +1,66 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:30:00 +0800
+Subject: Normalize WebGL format parameters to prevent GPU fingerprinting
+
+Overrides WebGL renderer-reported format parameters (max texture size,
+max renderbuffer size, max viewport dimensions, etc.) with consistent
+NVIDIA RTX 4090-like values when PureCloak noise is enabled.
+
+Parameters like GL_MAX_TEXTURE_SIZE, GL_MAX_RENDERBUFFER_SIZE, and
+GL_MAX_VIEWPORT_DIMS vary significantly between GPU vendors and can
+be used for hardware fingerprinting. Normalizing them to standard
+values prevents this detection vector.
+
+Also recomputes mipmap level counts (max_texture_level_,
+max_cube_map_texture_level_, max3d_texture_level_) to stay consistent
+with the normalized sizes.
+
+---
+ .../webgl/webgl_rendering_context_base.cc     | 22 +++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+--- a/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
++++ b/third_party/blink/renderer/modules/webgl/webgl_rendering_context_base.cc
+@@ -167,6 +167,12 @@
+ #include "third_party/skia/include/gpu/ganesh/GrTypes.h"
+ #include "ui/gfx/geometry/size.h"
+ 
++// PureCloak: WebGL parameter normalization
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ // Killswitch guarding WebGL creating its CanvasResourceProvider with the size
+ // of its DrawingBuffer rather than the size of its Host.
+ BASE_FEATURE(kWebGLCanvasResourceProviderDrawingBufferSize,
+@@ -1487,6 +1493,28 @@ void WebGLRenderingContextBase::InitializeNewContext() {
+   max_renderbuffer_size_ = 0;
+   ContextGL()->GetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &max_renderbuffer_size_);
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: normalize WebGL format parameters to prevent GPU fingerprinting.
++  // Use NVIDIA RTX 4090-like values when noise is enabled.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    max_texture_size_ = 16384;
++    max_cube_map_texture_size_ = 16384;
++    max_renderbuffer_size_ = 16384;
++    max_viewport_dims_ = {32767, 32767};
++    // Recompute mipmap levels for the normalized sizes.
++    max_texture_level_ =
++        WebGLTexture::ComputeLevelCount(max_texture_size_, max_texture_size_, 1);
++    max_cube_map_texture_level_ = WebGLTexture::ComputeLevelCount(
++        max_cube_map_texture_size_, max_cube_map_texture_size_, 1);
++    if (IsWebGL2()) {
++      max3d_texture_size_ = 16384;
++      max_array_texture_layers_ = 2048;
++      max3d_texture_level_ = WebGLTexture::ComputeLevelCount(
++          max3d_texture_size_, max3d_texture_size_, max3d_texture_size_);
++    }
++  }
++#endif
++
+   // These two values from EXT_draw_buffers are lazily queried.
+   max_draw_buffers_ = 0;
+   max_color_attachments_ = 0;

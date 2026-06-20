@@ -1,0 +1,96 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 23:45:00 +0800
+Subject: Spoof AAC audio encoder support for anti-fingerprinting (#22)
+
+Two-part patch to spoof AAC audio codec availability on platforms
+without a native AAC encoder (e.g., Linux):
+
+1. `media_recorder_handler.cc`: When PureCloak noise is enabled,
+   `CanSupportMimeTypeForCodec()` returns true for AAC codec
+   ("mp4a.40.2") in MP4 containers, even when USE_PROPRIETARY_CODECS
+   is not defined. This makes `MediaRecorder.isTypeSupported()` lie
+   about AAC support, preventing platform fingerprinting via audio
+   codec availability.
+
+2. `audio_track_recorder.cc`: When the native AAC encoder does not
+   exist and PureCloak noise is enabled, the AAC code path gracefully
+   falls back to Opus encoding instead of crashing via NOTREACHED().
+   This prevents crashes if JavaScript attempts to actually record
+   AAC audio on a platform without a native encoder.
+
+---
+ .../modules/mediarecorder/audio_track_recorder.cc          | 15 +++++++++++++++
+ .../mediarecorder/media_recorder_handler.cc                 | 14 ++++++++++++++
+ 2 files changed, 29 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.cc b/third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.cc
+index c669507f83..535a3bb48b 100644
+--- a/third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.cc
++++ b/third_party/blink/renderer/modules/mediarecorder/audio_track_recorder.cc
+@@ -8,6 +8,11 @@
+ 
+ #include "base/check_op.h"
+ #include "base/task/bind_post_task.h"
++
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "base/task/sequenced_task_runner.h"
+ #include "base/task/thread_pool.h"
+ #include "base/time/time.h"
+@@ -112,6 +117,21 @@ SequenceBound<AudioTrackEncoder> AudioTrackRecorder::CreateAudioEncoder(
+           encoder_task_runner_, encoder_task_runner_, codec,
+           std::move(on_encoded_audio_cb), std::move(on_encoded_audio_error_cb),
+           bits_per_second);
++#elif BUILDFLAG(IS_PURECLOAK)
++      // PureCloak: Gracefully fall back to Opus when AAC encoder is not
++      // available on the host platform. This prevents crashes when spoofed
++      // AAC support (from CanSupportMimeTypeForCodec) causes JavaScript to
++      // attempt AAC recording on a platform without a native AAC encoder.
++      // The Opus fallback is transparent to the caller -- the recorded audio
++      // will be Opus-encoded instead of AAC, which is acceptable for anti-
++      // fingerprinting purposes where we only need isTypeSupported to lie.
++      if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++        return SequenceBound<AudioTrackOpusEncoder>(
++            encoder_task_runner_, std::move(on_encoded_audio_cb),
++            std::move(on_encoded_audio_error_cb), bits_per_second,
++            /*variable_bitrate=*/true);
++      }
++      [[fallthrough]];
+ #else
+       NOTREACHED() << "AAC encoder is not supported.";
+ #endif
+diff --git a/third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.cc b/third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.cc
+index 615d12b8f4..06fe486469 100644
+--- a/third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.cc
++++ b/third_party/blink/renderer/modules/mediarecorder/media_recorder_handler.cc
+@@ -11,6 +11,11 @@
+ #include <utility>
+ #include <vector>
+ 
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ #include "base/compiler_specific.h"
+ #include "base/feature_list.h"
+ #include "base/functional/bind.h"
+@@ -298,6 +303,16 @@ bool MediaRecorderHandler::CanSupportMimeTypeForCodec(const String& type,
+   }
+ 
+   const bool mp4_mime_type = IsAllowedMp4Type(type);
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Spoof AAC encoder support on platforms where the native AAC
++  // encoder does not exist (e.g., Linux). This prevents fingerprinting via
++  // MediaRecorder.isTypeSupported('audio/mp4;codecs="mp4a.40.2"'), which
++  // would otherwise reveal the host platform by the audio codecs available.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled() &&
++      mp4_mime_type && codec == "mp4a.40.2") {
++    return true;
++  }
++#endif
+   if (mp4_mime_type) {
+     static const char* const kVideoCodecsForMP4[] = {
+ #if BUILDFLAG(USE_PROPRIETARY_CODECS)

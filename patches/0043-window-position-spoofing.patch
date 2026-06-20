@@ -1,0 +1,63 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 23:30:00 +0800
+Subject: Spoof window position coordinates for anti-fingerprinting (#39)
+
+Overrides window.screenX and window.screenY with deterministic values
+derived from the workspace seed when PureCloak noise is enabled. Real
+browser windows are rarely at position (0, 0) — a fixed or predictable
+position prevents VM/container detection via window position APIs.
+
+screenX returns values in [200, 399] and screenY in [100, 249],
+both based on the workspace seed for deterministic per-workspace
+positioning. screenLeft/screenTop are aliases and are automatically
+covered.
+
+---
+ .../core/frame/local_dom_window.cc                 | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index fa076585bf..4a3abb0c16 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -32,6 +32,11 @@
+ 
+ #include "base/command_line.h"
+ #include "base/metrics/histogram_macros.h"
++
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "base/task/single_thread_task_runner.h"
+ #include "base/trace_event/trace_id_helper.h"
+ #include "base/trace_event/typed_macros.h"
+@@ -1693,6 +1698,14 @@ int LocalDOMWindow::innerWidth() const {
+ }
+ 
+ int LocalDOMWindow::screenX() const {
++#if BUILDFLAG(IS_PURECLOAK)
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    // PureCloak: Return a deterministic window X position based on the
++    // workspace seed. Real browser windows are rarely at 0,0 — a fixed
++    // position prevents VM/container detection via window.screenX.
++    return 200 + (purecloak::PureCloakSeed::GetInstance()->seed() % 200);
++  }
++#endif
+   LocalFrame* frame = GetFrame();
+   if (!frame)
+     return 0;
+@@ -1711,6 +1724,13 @@ int LocalDOMWindow::screenX() const {
+ }
+ 
+ int LocalDOMWindow::screenY() const {
++#if BUILDFLAG(IS_PURECLOAK)
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    // PureCloak: Return a deterministic window Y position based on the
++    // workspace seed. Accounts for typical OS taskbar/menu bar height.
++    return 100 + (purecloak::PureCloakSeed::GetInstance()->seed() % 150);
++  }
++#endif
+   LocalFrame* frame = GetFrame();
+   if (!frame)
+     return 0;

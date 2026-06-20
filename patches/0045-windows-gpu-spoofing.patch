@@ -1,0 +1,66 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:30:00 +0800
+Subject: Spoof Windows GPU device info for anti-fingerprinting (#32)
+
+Override DXGI-collected GPU vendor_id, device_id, and device_string
+with spoofed NVIDIA GeForce RTX 3060 values when PureCloak noise is
+enabled on Windows. This prevents GPU fingerprinting through APIs
+that expose the raw DXGI device info (vendor_id/device_id),
+complementing the GL-level string spoofing in gpu_info_collector.cc.
+
+The spoofed values (vendor_id=0x10de, device_id=0x2204) match a
+common, widely-compatible Windows GPU profile. secondary_gpus is
+cleared to avoid leaking multi-GPU configurations.
+
+No BUILDFLAG guards are needed since patches only apply during
+PureCloak builds.
+
+---
+ gpu/config/gpu_info_collector_win.cc | 28 +++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/gpu/config/gpu_info_collector_win.cc b/gpu/config/gpu_info_collector_win.cc
+index e0f68da335..ecb4e40991 100644
+--- a/gpu/config/gpu_info_collector_win.cc
++++ b/gpu/config/gpu_info_collector_win.cc
+@@ -33,6 +33,11 @@
+ #include "base/win/scoped_com_initializer.h"
+ #include "build/branding_buildflags.h"
+ #include "gpu/config/gpu_util.h"
++#include "purecloak/common/buildflags.h"
++
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "third_party/microsoft_dxheaders/src/include/directx/d3d12.h"
+ #include "third_party/microsoft_dxheaders/src/include/directx/dxcore.h"
+ #include "third_party/re2/src/re2/re2.h"
+@@ -927,7 +932,27 @@ bool CollectBasicGraphicsInfo(GPUInfo* gpu_info) {
+   TRACE_EVENT0("gpu", "CollectPreliminaryGraphicsInfo");
+   DCHECK(gpu_info);
+   // TODO(zmo): we only need to call CollectDriverInfoD3D() if we use ANGLE.
+-  return CollectDriverInfoD3D(gpu_info);
++  bool success = CollectDriverInfoD3D(gpu_info);
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Override GPU device info with spoofed values when noise is
++  // enabled on Windows. Without this, the real DXGI-collected GPU info
++  // (vendor_id, device_id, device_string) would leak through, even when the
++  // GL-level renderer/vendor strings are spoofed by patches in
++  // gpu_info_collector.cc. Using NVIDIA GeForce RTX 3060 as a common,
++  // widely-compatible Windows GPU profile.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    gpu_info->gpu.vendor_id = 0x10de;        // NVIDIA Corporation
++    gpu_info->gpu.device_id = 0x2204;         // GeForce RTX 3060
++    gpu_info->gpu.vendor_string = "NVIDIA Corporation";
++    gpu_info->gpu.device_string = "NVIDIA GeForce RTX 3060";
++    gpu_info->gpu.sub_sys_id = 0;
++    gpu_info->gpu.revision = 0;
++    gpu_info->secondary_gpus.clear();
++  }
++#endif
++
++  return success;
+ }
+ 
+ bool IdentifyActiveGPUWithLuid(GPUInfo* gpu_info) {

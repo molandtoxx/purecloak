@@ -1,0 +1,76 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:00:00 +0800
+Subject: Font rendering edge cases for cross-platform spoofing
+
+After the system QuerySystemRenderStyle() call loads real platform
+per-font rendering preferences (which would leak the actual OS), re-apply
+the spoofed platform's critical rendering parameters for hinting and
+subpixel rendering.
+
+Without this fix, per-font settings from the actual platform's fontconfig
+or DirectWrite configuration would override the spoofed defaults from
+GetDefault(), causing font rendering discrepancies that could be used to
+fingerprint the real platform.
+
+---
+ .../platform/fonts/font_platform_data.cc      | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+diff --git a/third_party/blink/renderer/platform/fonts/font_platform_data.cc b/third_party/blink/renderer/platform/fonts/font_platform_data.cc
+index 611c0c8a35..58a279395f 100644
+--- a/third_party/blink/renderer/platform/fonts/font_platform_data.cc
++++ b/third_party/blink/renderer/platform/fonts/font_platform_data.cc
+@@ -43,6 +43,11 @@
+ #include "third_party/skia/include/core/SkFont.h"
+ #include "third_party/skia/include/core/SkTypeface.h"
+ 
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ #if BUILDFLAG(IS_MAC)
+ #include "third_party/skia/include/ports/SkTypeface_mac.h"
+ #endif
+@@ -124,6 +129,42 @@ FontPlatformData::FontPlatformData(sk_sp<SkTypeface> typeface,
+   auto system_style = QuerySystemForRenderStyle();
+ #endif  // !BUILDFLAG(IS_WIN)
+   style_.OverrideWith(system_style);
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Re-apply spoofed platform rendering preferences after the
++  // system QuerySystemRenderStyle() call. The system query would return
++  // values for the actual platform, which would override the spoofed
++  // platform defaults from GetDefault().  Re-assert the target platform's
++  // critical rendering parameters so per-font rendering matches the
++  // spoofed OS.
++  if (PureCloakSeed::GetInstance()->noise_enabled()) {
++    const std::string& target = PureCloakSeed::GetInstance()->platform();
++    bool is_spoofing = false;
++#if BUILDFLAG(IS_WIN)
++    is_spoofing = (target != "windows");
++#elif BUILDFLAG(IS_MAC)
++    is_spoofing = (target != "macos");
++#elif BUILDFLAG(IS_LINUX)
++    is_spoofing = (target != "linux");
++#endif
++    if (is_spoofing) {
++      // Re-assert the target platform rendering parameters.
++      if (target == "windows") {
++        style_.use_subpixel_rendering = 1;
++        style_.use_hinting = 1;
++        style_.hint_style = static_cast<char>(SkFontHinting::kNormal);
++      } else if (target == "macos") {
++        style_.use_subpixel_rendering = 0;
++        style_.use_hinting = 1;
++        style_.hint_style = static_cast<char>(SkFontHinting::kSlight);
++      } else if (target == "linux") {
++        style_.use_subpixel_rendering = 0;
++        style_.use_hinting = 1;
++        style_.hint_style = static_cast<char>(SkFontHinting::kNormal);
++      }
++    }
++  }
++#endif
+ #endif  // !BUILDFLAG(IS_MAC)
+ }
+ 

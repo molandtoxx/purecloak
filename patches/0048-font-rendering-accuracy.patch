@@ -1,0 +1,87 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:00:00 +0800
+Subject: Font rendering accuracy to match spoofed platform
+
+When PureCloak noise is enabled and the spoofed platform differs from the
+actual platform, override the global font rendering parameters in
+WebFontRenderStyle::GetDefault() to match the target platform's rendering
+behavior.
+
+Platform-specific rendering characteristics:
+- Windows: LCD subpixel anti-aliasing, normal hinting, embedded bitmaps
+- macOS: Grayscale anti-aliasing only, slight hinting, no embedded bitmaps
+- Linux: Auto-hinting, normal hinting, no subpixel rendering (default)
+
+This ensures that Skia font rendering (hinting, anti-aliasing, subpixel
+rendering) matches real Chrome behavior on the spoofed platform.
+
+---
+ .../platform/fonts/web_font_render_style.cc   | 47 +++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+diff --git a/third_party/blink/renderer/platform/fonts/web_font_render_style.cc b/third_party/blink/renderer/platform/fonts/web_font_render_style.cc
+index 2aa5e67566..e59803efd4 100644
+--- a/third_party/blink/renderer/platform/fonts/web_font_render_style.cc
++++ b/third_party/blink/renderer/platform/fonts/web_font_render_style.cc
+@@ -10,6 +10,11 @@
+ #include "third_party/blink/renderer/platform/web_test_support.h"
+ #include "third_party/skia/include/core/SkFont.h"
+ 
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ namespace blink {
+ 
+ namespace {
+@@ -66,6 +71,50 @@ WebFontRenderStyle WebFontRenderStyle::GetDefault() {
+   result.use_anti_alias = g_use_skia_anti_alias;
+   result.use_subpixel_rendering = g_use_skia_subpixel_rendering;
+   result.use_subpixel_positioning = FontDescription::SubpixelPositioning();
++
++#if BUILDFLAG(IS_PURECLOAK)
++  if (PureCloakSeed::GetInstance()->noise_enabled()) {
++    const std::string& target = PureCloakSeed::GetInstance()->platform();
++    bool is_spoofing = false;
++#if BUILDFLAG(IS_WIN)
++    is_spoofing = (target != "windows");
++#elif BUILDFLAG(IS_MAC)
++    is_spoofing = (target != "macos");
++#elif BUILDFLAG(IS_LINUX)
++    is_spoofing = (target != "linux");
++#endif
++    if (is_spoofing) {
++      // Override font rendering defaults to match the spoofed platform.
++      // These values mirror real Chrome behavior on each platform.
++      result.use_anti_alias = 1;
++      result.use_subpixel_positioning = 1;
++      if (target == "windows") {
++        // Windows Chrome: LCD subpixel AA, normal hinting, embedded bitmaps.
++        result.use_subpixel_rendering = 1;
++        result.hint_style = static_cast<char>(SkFontHinting::kNormal);
++        result.use_hinting = 1;
++        result.use_bitmaps = 1;
++        result.use_auto_hint = 0;
++      } else if (target == "macos") {
++        // macOS Chrome: grayscale AA only, slight hinting, no bitmaps.
++        result.use_subpixel_rendering = 0;
++        result.hint_style = static_cast<char>(SkFontHinting::kSlight);
++        result.use_hinting = 1;
++        result.use_bitmaps = 0;
++        result.use_auto_hint = 0;
++      } else if (target == "linux") {
++        // Linux Chrome: varies by distro; auto-hint, normal hinting, no LCD.
++        result.use_subpixel_rendering = 0;
++        result.hint_style = static_cast<char>(SkFontHinting::kNormal);
++        result.use_hinting = 1;
++        result.use_bitmaps = 0;
++        result.use_auto_hint = 1;
++      }
++      return result;
++    }
++  }
++#endif
++
+   return result;
+ }
+ 

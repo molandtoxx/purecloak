@@ -1,0 +1,71 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:45:00 +0800
+Subject: Spoof WebGPU adapter features for anti-fingerprinting
+
+Modifies Dawn's APIHasFeature() and APIGetFeatures() to present a
+consistent feature set when PureCloak noise is enabled.
+
+Always reports BC texture compression as available (common on modern
+GPUs) and hides platform-specific adapter property features
+(AdapterPropertiesD3D, AdapterPropertiesVk, AdapterPropertiesMetal)
+that reveal the underlying GPU backend/vendor.
+
+This prevents WebGPU-based feature fingerprinting where different
+GPU backends (D3D12, Vulkan, Metal) expose different feature sets
+that can be used to identify the platform.
+
+---
+ third_party/dawn/src/dawn/native/Adapter.cpp | 37 ++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+--- a/third_party/dawn/src/dawn/native/Adapter.cpp
++++ b/third_party/dawn/src/dawn/native/Adapter.cpp
+@@ -225,6 +225,22 @@ void APIAdapterPropertiesSubgroupMatrixConfigsFreeMembers(
+ }
+ 
+ bool AdapterBase::APIHasFeature(wgpu::FeatureName feature) const {
++#if BUILDFLAG(IS_PURECLOAK)
++    // PureCloak: report texture compression consistently and hide backend-specific features
++    if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++        if (feature == wgpu::FeatureName::TextureCompressionBC) {
++            return true;
++        }
++        if (feature == wgpu::FeatureName::AdapterPropertiesD3D ||
++            feature == wgpu::FeatureName::AdapterPropertiesVk ||
++            feature == wgpu::FeatureName::AdapterPropertiesMetal) {
++            return false;
++        }
++    }
++#endif
+     return mSupportedFeatures.IsEnabled(feature);
+ }
+ 
+@@ -233,6 +249,27 @@ void AdapterBase::APIGetFeatures(wgpu::SupportedFeatures* features) const {
+ }
+ 
+ void AdapterBase::APIGetFeatures(SupportedFeatures* features) const {
++#if BUILDFLAG(IS_PURECLOAK)
++    // PureCloak: filter to a consistent feature set when noise is enabled
++    if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++        mSupportedFeatures.ToSupportedFeatures(features);
++        // Remove backend-specific property features
++        for (size_t i = 0; i < features->featureCount;) {
++            wgpu::FeatureName f = features->features[i];
++            if (f == wgpu::FeatureName::AdapterPropertiesD3D ||
++                f == wgpu::FeatureName::AdapterPropertiesVk ||
++                f == wgpu::FeatureName::AdapterPropertiesMetal) {
++                if (i < features->featureCount - 1) {
++                    features->features[i] = features->features[features->featureCount - 1];
++                }
++                features->featureCount--;
++            } else {
++                i++;
++            }
++        }
++        return;
++    }
++#endif
+     mSupportedFeatures.ToSupportedFeatures(features);
+ }
+ 

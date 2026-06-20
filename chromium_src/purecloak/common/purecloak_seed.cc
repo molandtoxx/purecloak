@@ -53,6 +53,8 @@ void PureCloakSeed::InitializeFromCommandLine(const base::CommandLine& cmd) {
   std::string dm_str = get_switch(switches::kFingerprintDeviceMemory, "");
   if (!dm_str.empty() && base::StringToInt(dm_str, &tmp)) {
     device_memory_ = tmp;
+  } else {
+    device_memory_ = DefaultDeviceMemory(platform_);
   }
 
   // Screen.
@@ -216,7 +218,22 @@ int PureCloakSeed::DefaultTaskbarHeight(const std::string& platform) {
 // static
 int PureCloakSeed::DefaultHardwareConcurrency(
     const std::string& platform) {
-  // Modern baseline: 8 cores is the most common fingerprint.
+  // Platform-aware hardware concurrency defaults based on common real-world
+  // configurations. Android devices typically have fewer cores than desktops,
+  // while macOS tends toward efficiency cores.
+  if (platform == "android") return 4;
+  if (platform == "ios") return 4;
+  // Modern baseline: 8 cores is the most common desktop fingerprint.
+  return 8;
+}
+
+// static
+int PureCloakSeed::DefaultDeviceMemory(const std::string& platform) {
+  // Platform-aware device memory defaults based on common configurations.
+  // Mobile devices typically have less RAM than desktops.
+  if (platform == "android") return 4;
+  if (platform == "ios") return 3;
+  // Desktop baseline: 8 GB is the most common configuration.
   return 8;
 }
 

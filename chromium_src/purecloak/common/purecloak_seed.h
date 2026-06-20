@@ -59,6 +59,7 @@ class PureCloakSeed {
   static int DefaultScreenHeight(const std::string& platform);
   static int DefaultTaskbarHeight(const std::string& platform);
   static int DefaultHardwareConcurrency(const std::string& platform);
+  static int DefaultDeviceMemory(const std::string& platform);
 
   mutable base::Lock lock_;
 

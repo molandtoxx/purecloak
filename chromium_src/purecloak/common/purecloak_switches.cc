@@ -27,6 +27,8 @@ const char kFingerprintFontsDir[] = "fingerprint-fonts-dir";
 const char kFingerprintLocation[] = "fingerprint-location";
 const char kFingerprintStorageQuota[] = "fingerprint-storage-quota";
 const char kFingerprintNoise[] = "fingerprint-noise";
+const char kFingerprintTimezone[] = "fingerprint-timezone";
+const char kFingerprintLocale[] = "fingerprint-locale";
 
 }  // namespace switches
 }  // namespace purecloak

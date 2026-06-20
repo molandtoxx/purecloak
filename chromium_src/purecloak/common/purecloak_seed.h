@@ -44,6 +44,8 @@ class PureCloakSeed {
   const std::string& webrtc_ip() const;
   const std::string& fonts_dir() const;
   const std::string& location() const;
+  const std::string& timezone() const;
+  const std::string& locale() const;
   int storage_quota_mb() const;
   bool noise_enabled() const;
 
@@ -75,6 +77,8 @@ class PureCloakSeed {
   std::string webrtc_ip_;
   std::string fonts_dir_;
   std::string location_;
+  std::string timezone_;
+  std::string locale_;
   int storage_quota_mb_ = 500;
   bool noise_enabled_ = true;
 };

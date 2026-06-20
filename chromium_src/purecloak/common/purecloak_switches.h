@@ -31,6 +31,8 @@ extern const char kFingerprintFontsDir[];
 extern const char kFingerprintLocation[];
 extern const char kFingerprintStorageQuota[];
 extern const char kFingerprintNoise[];
+extern const char kFingerprintTimezone[];
+extern const char kFingerprintLocale[];
 
 }  // namespace switches
 }  // namespace purecloak

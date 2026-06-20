@@ -1,0 +1,46 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 18:00:00 +0800
+Subject: Spoof navigator.language at the C++ renderer level
+
+When --fingerprint-locale is provided, override the browser's real
+accept languages with the spoofed locale value. This ensures
+navigator.language, navigator.languages, and Accept-Language header
+all return the configured locale instead of the real system locale.
+
+The PureCloakSeed locale is checked first in GetAcceptLanguages();
+if set (non-empty), it replaces the real language. If unset, the
+original behavior is preserved. This is a source-level override,
+not a CDP emulation, so it cannot be detected by JavaScript analysis.
+
+---
+ third_party/blink/renderer/core/frame/navigator.cc | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator.cc b/third_party/blink/renderer/core/frame/navigator.cc
+--- a/third_party/blink/renderer/core/frame/navigator.cc
++++ b/third_party/blink/renderer/core/frame/navigator.cc
+@@ -24,6 +24,9 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator.h"
+ 
++#include "base/strings/string_util.h"
++#include "purecloak/common/buildflags.h"
++#include "purecloak/common/purecloak_seed.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+ #include "third_party/blink/renderer/core/execution_context/navigator_base.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -109,6 +112,16 @@ bool Navigator::webdriver() const {
+ }
+ 
+ String Navigator::GetAcceptLanguages() {
++#if BUILDFLAG(IS_PURECLOAK)
++  const std::string& locale =
++      purecloak::PureCloakSeed::GetInstance()->locale();
++  if (!locale.empty()) {
++    return String::FromUTF8(locale);
++  }
++#endif
++
+   if (!DomWindow())
+     return DefaultLanguage();
+ 

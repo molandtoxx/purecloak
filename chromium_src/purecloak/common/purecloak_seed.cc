@@ -80,6 +80,8 @@ void PureCloakSeed::InitializeFromCommandLine(const base::CommandLine& cmd) {
   webrtc_ip_ = get_switch(switches::kFingerprintWebrtcIp, "");
   fonts_dir_ = get_switch(switches::kFingerprintFontsDir, "");
   location_ = get_switch(switches::kFingerprintLocation, "");
+  timezone_ = get_switch(switches::kFingerprintTimezone, "");
+  locale_ = get_switch(switches::kFingerprintLocale, "");
 
   // Storage.
   sw = get_switch(switches::kFingerprintStorageQuota, "");
@@ -170,6 +172,16 @@ const std::string& PureCloakSeed::fonts_dir() const {
 const std::string& PureCloakSeed::location() const {
   base::AutoLock lock(lock_);
   return location_;
+}
+
+const std::string& PureCloakSeed::timezone() const {
+  base::AutoLock lock(lock_);
+  return timezone_;
+}
+
+const std::string& PureCloakSeed::locale() const {
+  base::AutoLock lock(lock_);
+  return locale_;
 }
 
 int PureCloakSeed::storage_quota_mb() const {

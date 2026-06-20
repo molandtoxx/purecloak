@@ -1,0 +1,39 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 21:00:00 +0800
+Subject: Spoof brand version and platform version for anti-fingerprinting
+
+Overrides Sec-CH-UA-Full-Version and Sec-CH-UA-Platform Client Hints
+with configured values from --fingerprint-brand-version and
+--fingerprint-platform-version when PureCloak noise is enabled.
+
+This completes the UA brand spoofing by ensuring version strings are
+consistent with the spoofed brand identity (e.g., "130" for Chrome,
+"120" for Edge) instead of leaking the actual Chromium version.
+
+Depends on patch #36 for the PureCloak buildflag and seed includes.
+
+---
+ .../embedder_support/user_agent_utils.cc       | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -670,6 +670,17 @@ blink::UserAgentMetadata GetUserAgentMetadata(bool only_low_entropy_ch) {
+   metadata.bitness = GetCpuBitness();
+   metadata.wow64 = IsWoW64();
+   metadata.platform_version = GetPlatformVersion();
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: spoof brand version and platform version for anti-fingerprinting.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    metadata.full_version =
++        purecloak::PureCloakSeed::GetInstance()->brand_version();
++    metadata.platform_version =
++        purecloak::PureCloakSeed::GetInstance()->platform_version();
++  }
++#endif
++
+   return metadata;
+ }
+ 

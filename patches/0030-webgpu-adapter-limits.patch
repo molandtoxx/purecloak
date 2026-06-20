@@ -1,0 +1,82 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:55:00 +0800
+Subject: Normalize WebGPU adapter limits for anti-fingerprinting
+
+Modifies Dawn's APIGetLimits() to report consistent adapter limits
+when PureCloak noise is enabled. All limit values are set to a
+common high-end GPU baseline (matching NVIDIA RTX 4090-class
+capabilities).
+
+This prevents fingerprinting via WebGPU limit queries where
+different GPU vendors and driver versions expose different limit
+values that can identify the hardware configuration.
+
+---
+ third_party/dawn/src/dawn/native/Adapter.cpp | 43 ++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/third_party/dawn/src/dawn/native/Adapter.cpp b/third_party/dawn/src/dawn/native/Adapter.cpp
+--- a/third_party/dawn/src/dawn/native/Adapter.cpp
++++ b/third_party/dawn/src/dawn/native/Adapter.cpp
+@@ -38,6 +38,13 @@
+ #include "partition_alloc/pointers/raw_ptr.h"
+ #include "src/dawn/common/Math.h"
+ #include "src/dawn/common/StringViewUtils.h"
++
++// PureCloak: WebGPU adapter limits spoofing
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ #include "src/dawn/native/ChainUtils.h"
+ #include "src/dawn/native/Device.h"
+ #include "src/dawn/native/Error.h"
+@@ -120,6 +127,49 @@ wgpu::Status AdapterBase::APIGetLimits(Limits* limits) const {
+     if (mInstance->ConsumedError(FillLimits(limits, mSupportedFeatures, mLimits))) {
+         return wgpu::Status::Error;
+     }
++#if BUILDFLAG(IS_PURECLOAK)
++    // PureCloak: normalize adapter limits to a common baseline
++    if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++        limits->maxTextureDimension1D = 16384;
++        limits->maxTextureDimension2D = 16384;
++        limits->maxTextureDimension3D = 16384;
++        limits->maxTextureArrayLayers = 256;
++        limits->maxBindGroups = 4;
++        limits->maxBindGroupsPlusVertexBuffers = 24;
++        limits->maxBindingsPerBindGroup = 1000000;
++        limits->maxDynamicUniformBuffersPerPipelineLayout = 8;
++        limits->maxDynamicStorageBuffersPerPipelineLayout = 4;
++        limits->maxSampledTexturesPerShaderStage = 16;
++        limits->maxSamplersPerShaderStage = 16;
++        limits->maxStorageBuffersPerShaderStage = 8;
++        limits->maxStorageTexturesPerShaderStage = 4;
++        limits->maxUniformBuffersPerShaderStage = 12;
++        limits->maxUniformBufferBindingSize = 65536;
++        limits->maxStorageBufferBindingSize = 2147483648;
++        limits->minUniformBufferOffsetAlignment = 256;
++        limits->minStorageBufferOffsetAlignment = 256;
++        limits->maxVertexBuffers = 8;
++        limits->maxBufferSize = 268435456;
++        limits->maxVertexAttributes = 30;
++        limits->maxVertexBufferArrayStride = 2048;
++        limits->maxInterStageShaderComponents = 60;
++        limits->maxInterStageShaderVariables = 16;
++        limits->maxColorAttachments = 8;
++        limits->maxColorAttachmentBytesPerSample = 32;
++        limits->maxComputeWorkgroupStorageSize = 65536;
++        limits->maxComputeInvocationsPerWorkgroup = 256;
++        limits->maxComputeWorkgroupSizeX = 256;
++        limits->maxComputeWorkgroupSizeY = 256;
++        limits->maxComputeWorkgroupSizeZ = 64;
++        limits->maxComputeWorkgroupsPerDimension = 65535;
++        limits->maxStorageBuffersInFragmentStage = 4;
++        limits->maxStorageTexturesInFragmentStage = 4;
++        limits->maxStorageBuffersInVertexStage = 0;
++        limits->maxStorageTexturesInVertexStage = 0;
++    }
++#endif
+     return wgpu::Status::Success;
+ }
+ 

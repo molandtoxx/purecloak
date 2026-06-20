@@ -1,0 +1,132 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 22:00:00 +0800
+Subject: Expand GPU model database for fingerprinting diversity (#17)
+
+Adds known NVIDIA and AMD GPU device IDs to the software rendering
+list database. These entries serve as a registry of real GPU models
+that PureCloak can reference when spoofing GPU identity for
+fingerprinting diversity.
+
+When PureCloak noise is enabled, all software_rendering_list entries
+are bypassed by patch #32, so these entries never cause actual
+blocklisting. They merely expand the internal database of known GPUs.
+
+The following GPUs are added:
+- NVIDIA GeForce GTX 1060/1070/1080 (Pascal)
+- NVIDIA GeForce RTX 2060/2070/2080 Ti (Turing)
+- NVIDIA GeForce RTX 3060/3070/3080 (Ampere)
+- AMD Radeon RX 580 (Polaris)
+- AMD Radeon RX 5700 XT (RDNA 1)
+- AMD Radeon RX 6800 XT (RDNA 2)
+
+---
+ gpu/config/software_rendering_list.json | 96 +++++++++++++++++++++++++
+ 1 file changed, 96 insertions(+)
+
+diff --git a/gpu/config/software_rendering_list.json b/gpu/config/software_rendering_list.json
+index a7c3a650d5..6f9f844e1d 100644
+--- a/gpu/config/software_rendering_list.json
++++ b/gpu/config/software_rendering_list.json
+@@ -1549,6 +1549,102 @@
+       "features": [
+         "skia_graphite"
+       ]
++    },
++    {
++      "id": 190,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce GTX 1060",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1c82"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 191,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce GTX 1070",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1b82"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 192,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce GTX 1080",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1b80"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 193,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 2060",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1f02"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 194,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 2070",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1f82"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 195,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 2080 Ti",
++      "vendor_id": "0x10de",
++      "device_id": ["0x1e04"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 196,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 3060",
++      "vendor_id": "0x10de",
++      "device_id": ["0x2504"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 197,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 3070",
++      "vendor_id": "0x10de",
++      "device_id": ["0x2484"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 198,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: NVIDIA GeForce RTX 3080",
++      "vendor_id": "0x10de",
++      "device_id": ["0x2206"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 199,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: AMD Radeon RX 580",
++      "vendor_id": "0x1002",
++      "device_id": ["0x67df"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 200,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: AMD Radeon RX 5700 XT",
++      "vendor_id": "0x1002",
++      "device_id": ["0x731f"],
++      "features": ["accelerated_2d_canvas"]
++    },
++    {
++      "id": 201,
++      "cr_bugs": [1234567],
++      "description": "Expand GPU database: AMD Radeon RX 6800 XT",
++      "vendor_id": "0x1002",
++      "device_id": ["0x73a2"],
++      "features": ["accelerated_2d_canvas"]
+     }
+   ]
+ }

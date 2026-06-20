@@ -1,0 +1,57 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 22:10:00 +0800
+Subject: Fix brand string format to use spoofed brand from PureCloakSeed (#48)
+
+Prevents leaking the actual fork/product name (e.g., "PureCloak") in
+the Sec-CH-UA client hint header. When PureCloak noise is enabled and
+a spoofed brand is configured via --fingerprint-brand, that spoofed
+value replaces the build-time PRODUCT_NAME macro.
+
+This ensures the brand list in client hints matches the spoofed
+identity (e.g., "Google Chrome" / "Microsoft Edge") instead of
+revealing the actual fork name.
+
+---
+ components/embedder_support/user_agent_utils.cc | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+index 608bea5cb3..9abdcdfa44 100644
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -54,6 +54,11 @@
+ #include <sys/utsname.h>
+ #endif
+ 
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ namespace embedder_support {
+ 
+ namespace {
+@@ -163,8 +168,21 @@ const blink::UserAgentBrandList GetUserAgentBrandList(
+   bool parse_result = base::StringToInt(major_version, &major_version_number);
+   DCHECK(parse_result);
+   std::optional<std::string> brand;
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Use spoofed brand from PureCloakSeed instead of leaking the
++  // actual fork/brand name in Sec-CH-UA headers.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    const std::string& pc_brand =
++        purecloak::PureCloakSeed::GetInstance()->brand();
++    if (!pc_brand.empty()) {
++      brand = pc_brand;
++    }
++  }
++#endif
+ #if !BUILDFLAG(CHROMIUM_BRANDING)
+-  brand = version_info::GetProductName();
++  if (!brand.has_value()) {
++    brand = version_info::GetProductName();
++  }
+ #endif
+ 
+   std::string brand_version =
+ 

@@ -1,0 +1,61 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 22:20:00 +0800
+Subject: Fix canvas emoji rendering for deterministic fingerprinting (#10)
+
+Forces all emoji characters to use a fixed emoji font ("Noto Color
+Emoji") when PureCloak noise is enabled. This eliminates cross-platform
+differences in canvas fillText/strokeText output for emoji characters
+(U+1F300-U+1F9FF), making canvas fingerprint hashes deterministic
+regardless of the host platform's emoji font (Apple Color Emoji on Mac,
+Segoe UI Emoji on Windows, Noto Color Emoji on Linux).
+
+The intercept is placed in FontCache::FallbackFontForCharacter(), the
+single cross-platform entry point for emoji font fallback. When the
+fallback priority is emoji-presentation (IsEmojiPresentationEmoji) and
+noise is enabled, returns "Noto Color Emoji" directly via GetFontData().
+If the font is not available on the system, falls through to the
+standard platform fallback (GetFontData returns nullptr).
+
+---
+ .../blink/renderer/platform/fonts/font_cache.cc              | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 506b181809..f4f4f1cea3 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -58,6 +58,11 @@
+ #include "third_party/blink/renderer/platform/fonts/font_platform_data_cache.h"
+ #include "third_party/blink/renderer/platform/fonts/font_unique_name_lookup.h"
+ #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
++
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "third_party/blink/renderer/platform/heap/thread_state.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/web_memory_allocator_dump.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/web_process_memory_dump.h"
+@@ -206,6 +211,22 @@ const SimpleFontData* FontCache::FallbackFontForCharacter(
+     FontFallbackPriority fallback_priority) {
+   TRACE_EVENT0("fonts", "FontCache::FallbackFontForCharacter");
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Force deterministic emoji font to produce consistent canvas
++  // fingerprints across platforms. When PureCloak noise is enabled, emoji
++  // characters always fall back to a fixed font so that canvas rendering
++  // hashes are platform-independent.
++  if (PureCloakSeed::GetInstance()->noise_enabled() &&
++      IsEmojiPresentationEmoji(fallback_priority)) {
++    // Try "Noto Color Emoji" first. If unavailable, let the platform
++    // fallback through (this path returns nullptr -> natural fallback).
++    if (const SimpleFontData* emoji_font =
++            GetFontData(description, AtomicString("Noto Color Emoji"))) {
++      return emoji_font;
++    }
++  }
++#endif
++
+   // In addition to PUA, do not perform fallback for non-characters either. Some
+   // of these are sentinel characters to detect encodings and do appear on
+   // websites. More details on

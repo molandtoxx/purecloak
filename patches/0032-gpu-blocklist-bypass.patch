@@ -1,0 +1,47 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:10:00 +0800
+Subject: Bypass GPU blocklist when PureCloak noise is enabled
+
+Returns an empty GPU blocklist when PureCloak noise is active, since
+GPU info is spoofed and should not trigger real hardware blocklist
+entries. This prevents features like WebGL and WebGPU from being
+blocklisted due to mismatched spoofed vendor/device IDs.
+
+The blocklist is designed to disable acceleration on known-buggy GPU
+configurations. With spoofed GPU info, the blocklist may incorrectly
+match entries leading to unexpected feature disablement.
+
+---
+ gpu/config/gpu_blocklist.cc | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/gpu/config/gpu_blocklist.cc b/gpu/config/gpu_blocklist.cc
+--- a/gpu/config/gpu_blocklist.cc
++++ b/gpu/config/gpu_blocklist.cc
+@@ -7,6 +7,12 @@
+ #include "gpu/config/gpu_feature_type.h"
+ #include "gpu/config/software_rendering_list_autogen.h"
+ 
++// PureCloak: GPU blocklist bypass
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ namespace gpu {
+ 
+ GpuBlocklist::GpuBlocklist(base::span<const GpuControlList::Entry> data)
+@@ -16,6 +22,13 @@ GpuBlocklist::~GpuBlocklist() = default;
+ 
+ // static
+ std::unique_ptr<GpuBlocklist> GpuBlocklist::Create() {
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: return empty blocklist when noise is enabled, since GPU info
++  // is spoofed and should not trigger real hardware blocklist entries.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    return Create({});
++  }
++#endif
+   return Create(GetSoftwareRenderingListEntries());
+ }
+ 

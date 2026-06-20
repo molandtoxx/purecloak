@@ -1,0 +1,46 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:55:00 +0800
+Subject: Spoof User-Agent brand string to prevent UA-based fingerprinting
+
+Overrides the browser brand in Sec-CH-UA / Sec-CH-UA-Full-Version /
+Sec-CH-UA-Platform Client Hints with the configured value from
+--fingerprint-brand when PureCloak noise is enabled.
+
+This allows impersonating Chrome, Edge, Opera, or other Chromium-based
+browsers at the C++ level (not via CDP/JS) for complete stealth.
+
+---
+ .../embedder_support/user_agent_utils.cc       | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -35,6 +35,12 @@
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/common/user_agent/user_agent_metadata.h"
+ 
++// PureCloak: User-Agent brand spoofing
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ #if BUILDFLAG(IS_WIN)
+ #include <windows.h>
+ 
+@@ -167,6 +173,14 @@ const blink::UserAgentBrandList GetUserAgentBrandList(
+   brand = version_info::GetProductName();
+ #endif
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: spoof brand strings to prevent UA-based fingerprinting.
++  // Uses configured brand from --fingerprint-brand when noise is enabled.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    brand = purecloak::PureCloakSeed::GetInstance()->brand();
++  }
++#endif
++
+   std::string brand_version =
+       output_version_type == blink::UserAgentBrandVersionType::kFullVersion
+           ? full_version

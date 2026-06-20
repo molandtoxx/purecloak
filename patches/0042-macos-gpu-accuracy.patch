@@ -1,0 +1,67 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 23:00:00 +0800
+Subject: Add Apple Silicon GPU profiles for macOS anti-fingerprinting (#18)
+
+Overrides the Metal-collected GPU device info with Apple Silicon profiles
+when PureCloak noise is enabled on macOS. Without this fix, the real GPU
+vendor_id/device_id/device_string collected via Metal/ANGLE leak through,
+even when GL-level renderer/vendor strings are spoofed in
+gpu_info_collector.cc.
+
+The patch:
+- Sets vendor_id to 0x106b (Apple Inc.)
+- Sets device_id to a realistic Apple M3 Max GPU value (0x1501)
+- Sets vendor_string to "Apple" and device_string to "Apple M3 Max"
+- Clears secondary GPUs since Apple Silicon uses unified memory with no
+  discrete GPU, preventing dGPU detection via Metal's GPU enumeration
+
+This is macOS-specific (.mm file compiled only on macOS builds). On Linux,
+the file is not compiled and this patch has no effect.
+
+---
+ gpu/config/gpu_info_collector_mac.mm | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/gpu/config/gpu_info_collector_mac.mm b/gpu/config/gpu_info_collector_mac.mm
+index c9e809ebdc..d8eca23621 100644
+--- a/gpu/config/gpu_info_collector_mac.mm
++++ b/gpu/config/gpu_info_collector_mac.mm
+@@ -8,10 +8,15 @@
+ 
+ #include "base/metrics/histogram_macros.h"
+ #include "base/trace_event/trace_event.h"
++#include "purecloak/common/buildflags.h"
+ #include "third_party/angle/src/gpu_info_util/SystemInfo.h"
+ #include "ui/gl/gl_display.h"
+ #include "ui/gl/gl_utils.h"
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ namespace gpu {
+ 
+ namespace {
+@@ -96,6 +101,22 @@ bool CollectBasicGraphicsInfo(GPUInfo* gpu_info) {
+   bool success = angle::GetSystemInfo(&system_info);
+   FillGPUInfoFromSystemInfo(gpu_info, &system_info);
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Override GPU device info with Apple Silicon profiles when
++  // noise is enabled on macOS. Without this, the real Metal-collected GPU
++  // info (vendor_id, device_id, device_string) would leak through, even
++  // when the GL-level renderer/vendor strings are spoofed by patches in
++  // gpu_info_collector.cc. Apple Silicon uses vendor 0x106b (Apple Inc.).
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    gpu_info->gpu.vendor_id = 0x106b;
++    gpu_info->gpu.device_id = 0x1501;  // Apple M3 Max GPU
++    gpu_info->gpu.vendor_string = "Apple";
++    gpu_info->gpu.device_string = "Apple M3 Max";
++    // Clear secondary GPUs -- Apple Silicon uses unified memory, no dGPU.
++    gpu_info->secondary_gpus.clear();
++  }
++#endif
++
+   if (gpu_info->GpuCount() > 1) {
+     if (IsLowPowerGpu(gpu_info->gpu))
+       gpu_info->gpu.gpu_preference = gl::GpuPreference::kLowPower;

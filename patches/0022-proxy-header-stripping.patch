@@ -1,0 +1,53 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 16:30:00 +0800
+Subject: Strip proxy-related headers to prevent proxy usage leaks
+
+Under PureCloak, modify HttpRequestHeaders::SetHeaderInternal() to
+silently drop proxy-related headers (Proxy-Connection, Proxy-Keep-Alive,
+Proxy-Authenticate, Proxy-Authorization) when IS_PURECLOAK is defined.
+
+This prevents:
+- Proxy usage fingerprinting via leaked proxy-specific headers
+- Proxy-Authorization credential leaks through subresource requests
+- "Proxy-Connection: keep-alive" header leaks that reveal proxy presence
+
+The headers are dropped at the lowest level of header setting, so no
+caller needs modification. WebSocket and other HTTP-based protocols
+are covered automatically.
+
+---
+ .../http/http_request_headers.cc             | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/net/http/http_request_headers.cc b/net/http/http_request_headers.cc
+index 086b7e605d..a04eeb77cb 100644
+--- a/net/http/http_request_headers.cc
++++ b/net/http/http_request_headers.cc
+@@ -24,6 +24,10 @@
+ #include "third_party/abseil-cpp/absl/container/inlined_vector.h"
+ #include "url/gurl.h"
+ 
++// PureCloak: include build flag for proxy header stripping
++#include "build/buildflag.h"
++#include "purecloak/common/buildflags.h"
++
+ namespace net {
+ 
+ namespace {
+@@ -302,6 +306,17 @@ HttpRequestHeaders::HeaderVector::const_iterator HttpRequestHeaders::FindHeader(
+ 
+ void HttpRequestHeaders::SetHeaderInternal(std::string_view key,
+                                            std::string&& value) {
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: strip proxy-related headers to prevent proxy usage
++  // fingerprinting and credential leaks.
++  if (base::EqualsCaseInsensitiveASCII(key, "proxy-connection") ||
++      base::EqualsCaseInsensitiveASCII(key, "proxy-keep-alive") ||
++      base::EqualsCaseInsensitiveASCII(key, "proxy-authenticate") ||
++      base::EqualsCaseInsensitiveASCII(key, "proxy-authorization")) {
++    return;
++  }
++#endif
+   auto it = FindHeader(key);
+   if (it != headers_.end())
+     it->value = std::move(value);

@@ -9,6 +9,8 @@ assert(is_purecloak)
 
 source_set("browser") {
   sources = [
+    "purecloak_browser_main_parts.cc",
+    "purecloak_browser_main_parts.h",
     "purecloak_webui_registrar.cc",
     "purecloak_webui_registrar.h",
     "ui/views/side_panel/purecloak_side_panel_coordinator.cc",
@@ -34,6 +36,7 @@ source_set("browser") {
     "//chrome/browser/profiles:profiles",
     "//chrome/browser/ui/side_panel",
     "//content/public/browser",
+    "//purecloak/browser/api",
     "//purecloak/browser/profiles",
     "//purecloak/content",
     "//purecloak/resources",

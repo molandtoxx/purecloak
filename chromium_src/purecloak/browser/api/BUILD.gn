@@ -1,0 +1,37 @@
+# Copyright 2026 PureCloak Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+import("//purecloak/purecloak.gni")
+
+assert(is_purecloak)
+
+source_set("api") {
+  sources = [
+    "workspace_api_server.cc",
+    "workspace_api_server.h",
+    "workspace_api_handler.cc",
+    "workspace_api_handler.h",
+    "cdp_proxy_handler.cc",
+    "cdp_proxy_handler.h",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/browser/profiles:profiles",
+    "//content/public/browser",
+    "//net",
+    "//purecloak/browser",
+    "//purecloak/browser/profiles",
+    "//purecloak/common",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [ "api_unittest.cc" ]
+  deps = [
+    ":api",
+    "//testing/gtest",
+  ]
+}

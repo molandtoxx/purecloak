@@ -5,6 +5,8 @@
 import("//build/buildflag_header.gni")
 import("//purecloak/purecloak.gni")
 
+assert(is_purecloak)
+
 buildflag_header("buildflags") {
   header = "buildflags.h"
 
@@ -16,8 +18,12 @@ buildflag_header("buildflags") {
 source_set("common") {
   sources = [
     "purecloak_i18n.h",
+    "purecloak_switches.cc",
+    "purecloak_switches.h",
   ]
   deps = [
+    ":buildflags",
+    "//base",
     "//base:i18n",
   ]
 }

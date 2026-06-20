@@ -1,0 +1,72 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 10:45:00 +0800
+Subject: Strip kFromDebugger flag from CDP-dispatched input events
+
+Under PureCloak, remove the blink::WebInputEvent::kFromDebugger modifier
+from all CDP Input domain events (keyboard, mouse, touch, wheel). This
+modifier is used by JavaScript to detect synthetic/automated input events
+via event.isTrusted and similar checks.
+
+Without this flag, CDP-injected input events are indistinguishable from
+real user input at the renderer level, providing defense-in-depth against
+automation detection.
+
+The ack tracking in InputInjector::OnInputEventAck is also adjusted under
+PureCloak since it previously relied on kFromDebugger to identify injected
+events. Under PureCloak, pending callbacks are only populated when CDP
+injects events, so matching by event type is safe.
+
+---
+ content/browser/devtools/protocol/input_handler.cc | 27 +++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/content/browser/devtools/protocol/input_handler.cc b/content/browser/devtools/protocol/input_handler.cc
+--- a/content/browser/devtools/protocol/input_handler.cc
++++ b/content/browser/devtools/protocol/input_handler.cc
+@@ -6,6 +6,8 @@
+ 
+ #include <stddef.h>
+ 
++#include "purecloak/common/buildflags.h"
++
+ #include <memory>
+ #include <tuple>
+ #include <utility>
+@@ -93,7 +95,14 @@ int GetEventModifiers(int modifiers,
+                       int location,
+                       int buttons) {
+-  int result = blink::WebInputEvent::kFromDebugger;
++  // PureCloak: Strip kFromDebugger from injected events to prevent
++  // automation detection by JavaScript.
++#if !BUILDFLAG(IS_PURECLOAK)
++  int result = blink::WebInputEvent::kFromDebugger;
++#else
++  int result = 0;
++#endif
+   if (auto_repeat)
+     result |= blink::WebInputEvent::kIsAutoRepeat;
+   if (is_keypad)
+@@ -157,7 +166,13 @@ bool GetMouseEventButton(const std::string& button,
+                          blink::WebPointerProperties::Button* event_button,
+                          int* event_modifiers) {
+-  *event_modifiers = blink::WebInputEvent::kFromDebugger;
++  // PureCloak: Don't mark CDP-injected mouse events with kFromDebugger.
++#if !BUILDFLAG(IS_PURECLOAK)
++  *event_modifiers = blink::WebInputEvent::kFromDebugger;
++#else
++  *event_modifiers = 0;
++#endif
+   if (button.empty())
+     return true;
+ 
+@@ -844,6 +859,11 @@ class InputHandler::InputInjector
+                        const blink::WebInputEvent& event) override {
++    // PureCloak: kFromDebugger is stripped, so we cannot filter by it.
++    // Pending callbacks are only populated when CDP injects events, so
++    // matching by event type is safe.
++#if !BUILDFLAG(IS_PURECLOAK)
+     if ((event.GetModifiers() & blink::WebInputEvent::kFromDebugger) == 0)
+       return;
++#endif
+ 
+     if (blink::WebInputEvent::IsKeyboardEventType(event.GetType()) &&

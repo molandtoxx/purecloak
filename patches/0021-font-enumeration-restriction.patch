@@ -1,0 +1,89 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 16:00:00 +0800
+Subject: Restrict font enumeration to prevent font fingerprinting
+
+Under PureCloak, modify FontCache::GetFontPlatformData() to restrict
+visible system fonts to a whitelist of common web-safe and widely
+available fonts. When a requested font family is not in the whitelist,
+return nullptr to simulate the font not being installed, allowing CSS
+fallback to handle it naturally.
+
+This prevents JS-based font enumeration fingerprinting which relies on
+detecting the presence of uncommon/unusual fonts to identify unique
+browser configurations.
+
+The whitelist includes common sans-serif (Arial, Helvetica, Verdana,
+Tahoma, Trebuchet MS, Geneva), serif (Times, Times New Roman, Georgia,
+Palatino, Garamond, Bookman), monospace (Courier, Courier New, Lucida
+Console, Monaco), and fantasy/cursive (Comic Sans MS, Impact, Lucida
+Sans Unicode) families.
+
+---
+ .../platform/fonts/font_cache.cc              | 56 ++++++++++++++++++-
+ 1 file changed, 56 insertions(+), 0 deletions(-)
+
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 506b181809..f7a19f631b 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -43,6 +43,7 @@
+ #include "base/trace_event/process_memory_dump.h"
+ #include "base/trace_event/trace_event.h"
+ #include "build/build_config.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "skia/ext/font_utils.h"
+ #include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -138,6 +139,52 @@ const FontPlatformData* FontCache::GetFontPlatformData(
+   }
+ #endif
+ 
++  // PureCloak: restrict visible fonts to a common set to prevent font
++  // enumeration fingerprinting. When the requested font family is not in
++  // our common set, return nullptr (font not found) for the direct
++  // family match, letting CSS fallback handle it naturally.
++  if (creation_params.CreationType() == kCreateFontByFamily &&
++      alternate_font_name == AlternateFontName::kNoAlternate &&
++      !creation_params.Family().empty()) {
++    const AtomicString& family = creation_params.Family();
++    // Allow web-safe / very common font families through.
++    bool is_common_font = false;
++    const AtomicString kCommonFonts[] = {
++        // Sans-serif
++        font_family_names::kArial,
++        font_family_names::kHelvetica,
++        font_family_names::kVerdana,
++        font_family_names::kTahoma,
++        font_family_names::kTrebuchetMS,
++        font_family_names::kGeneva,
++        // Serif
++        font_family_names::kTimes,
++        font_family_names::kTimesNewRoman,
++        font_family_names::kGeorgia,
++        font_family_names::kPalatino,
++        font_family_names::kGaramond,
++        font_family_names::kBookman,
++        // Monospace
++        font_family_names::kCourier,
++        font_family_names::kCourierNew,
++        font_family_names::kLucidaConsole,
++        font_family_names::kMonaco,
++        // Fantasy / Cursive
++        font_family_names::kComicSansMS,
++        font_family_names::kImpact,
++        font_family_names::kLucidaSansUnicode,
++    };
++    for (const auto& common : kCommonFonts) {
++      if (family == common) {
++        is_common_font = true;
++        break;
++      }
++    }
++    if (!is_common_font) {
++      return nullptr;
++    }
++  }
++
+   return font_platform_data_cache_.GetOrCreateFontPlatformData(
+       this, font_description, creation_params, alternate_font_name);
+ }

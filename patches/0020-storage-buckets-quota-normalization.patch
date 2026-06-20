@@ -1,0 +1,40 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 16:00:00 +0800
+Subject: Normalize StorageBuckets API quota estimate
+
+Under PureCloak, replace the real storage quota reported by
+StorageBucket.estimate() with a deterministic PRNG value around
+500MB, matching the normalization applied to navigator.storage.estimate().
+This closes the last incognito/storage fingerprinting detection vector
+via the StorageBuckets API.
+
+---
+ .../modules/buckets/storage_bucket.cc              | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/modules/buckets/storage_bucket.cc b/third_party/blink/renderer/modules/buckets/storage_bucket.cc
+index 7354bc72d6..15272409f3 100644
+--- a/third_party/blink/renderer/modules/buckets/storage_bucket.cc
++++ b/third_party/blink/renderer/modules/buckets/storage_bucket.cc
+@@ -5,6 +5,7 @@
+ #include "third_party/blink/renderer/modules/buckets/storage_bucket.h"
+ 
+ #include "base/time/time.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "third_party/blink/public/platform/task_type.h"
+ #include "third_party/blink/renderer/bindings/core/v8/active_script_wrappable_creation_key.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+@@ -268,7 +269,12 @@ void StorageBucket::DidGetEstimate(
+ 
+   StorageEstimate* estimate = StorageEstimate::Create();
+   estimate->setUsage(current_usage);
+-  estimate->setQuota(current_quota);
++  // PureCloak: normalize reported quota to prevent storage-based
++  // fingerprinting. Use a deterministic PRNG value around 500MB.
++  int64_t normalized_quota =
++      purecloak::PureCloakNoise(0, 405) % (200 * 1024 * 1024) +
++      static_cast<int64_t>(400) * 1024 * 1024;
++  estimate->setQuota(normalized_quota);
+   StorageUsageDetails* details = StorageUsageDetails::Create();
+   estimate->setUsageDetails(details);
+   resolver->Resolve(estimate);

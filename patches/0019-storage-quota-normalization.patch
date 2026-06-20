@@ -1,0 +1,39 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 16:00:00 +0800
+Subject: Normalize storage quota estimate for anti-fingerprinting
+
+Under PureCloak, replace the real storage quota reported by
+navigator.storage.estimate() with a deterministic PRNG value around
+500MB (400-600MB range). This prevents storage quota-based
+fingerprinting while maintaining realistic values for web applications.
+
+---
+ .../modules/quota/storage_manager.cc                | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/modules/quota/storage_manager.cc b/third_party/blink/renderer/modules/quota/storage_manager.cc
+index ef1c723ac2..bf68d828e2 100644
+--- a/third_party/blink/renderer/modules/quota/storage_manager.cc
++++ b/third_party/blink/renderer/modules/quota/storage_manager.cc
+@@ -5,6 +5,7 @@
+ #include "third_party/blink/renderer/modules/quota/storage_manager.h"
+ 
+ #include "mojo/public/cpp/bindings/callback_helpers.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "third_party/blink/public/mojom/permissions/permission_status.mojom-blink.h"
+ #include "third_party/blink/public/mojom/quota/quota_types.mojom-blink.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -70,7 +71,12 @@ void QueryStorageUsageAndQuotaCallback(
+ 
+   StorageEstimate* estimate = StorageEstimate::Create();
+   estimate->setUsage(usage_in_bytes);
+-  estimate->setQuota(quota_in_bytes);
++  // PureCloak: normalize reported quota to a deterministic PRNG value
++  // around 500MB to prevent storage-based fingerprinting.
++  int64_t normalized_quota =
++      purecloak::PureCloakNoise(0, 404) % (200 * 1024 * 1024) +
++      static_cast<int64_t>(400) * 1024 * 1024;
++  estimate->setQuota(normalized_quota);
+ 
+   // We only want to show usage details for systems that are used by the app,
+   // this way we do not create any web compatibility issues by unecessarily

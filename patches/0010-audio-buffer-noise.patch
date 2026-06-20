@@ -1,0 +1,45 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Add deterministic float noise to AudioBuffer::AudioBuffer(AudioBus*)
+ for audio fingerprinting protection
+
+When AudioBuffer is constructed from an AudioBus (e.g., decoded audio files),
+inject deterministic ±0.0001 noise on ~1% of samples using the PureCloak PRNG.
+This ensures that audio fingerprinting via getChannelData() produces different
+results across workspaces while remaining imperceptible to human hearing.
+
+The noise is deterministic: same seed (0) + same sample position yields the
+same noise delta across runs and platforms. The selection of which samples to
+perturb is also deterministic based on sample position and channel index.
+
+---
+ third_party/blink/renderer/modules/webaudio/audio_buffer.cc | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+index bc4c0c6ca0..8ce6483a2e 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+@@ -31,6 +31,7 @@
+ #include <memory>
+ 
+ #include "base/compiler_specific.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "base/containers/span.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_buffer_options.h"
+ #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
+@@ -197,6 +198,14 @@ AudioBuffer::AudioBuffer(AudioBus* bus)
+       return;
+     }
+     channel_data_array->AsSpan().copy_from(bus->Channel(i)->Span());
++    // PureCloak: inject deterministic float noise to prevent audio fingerprinting
++    for (size_t s = 0; s < length_; ++s) {
++      // Apply ±0.0001 noise on ~1% of samples (deterministic based on sample position)
++      if ((s * 1009 + i * 3049) % 97 == 0) {
++        float* data = channel_data_array->Data();
++        data[s] += purecloak::PureCloakFloatNoise(0, s + i * length_);
++      }
++    }
+     channels_.push_back(channel_data_array);
+   }
+ }

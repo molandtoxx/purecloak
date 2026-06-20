@@ -1,0 +1,54 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Add deterministic float noise to OfflineAudioContext rendered output
+ for audio fingerprinting protection
+
+After offline audio rendering completes, inject deterministic ±0.0001 noise
+on ~1% of samples using the PureCloak PRNG before the result is dispatched
+via the completion event and promise resolution. This provides defense-in-depth
+for OfflineAudioContext fingerprinting, which is a common Web Audio API
+fingerprinting vector.
+
+The noise is deterministic: same seed (0) + same sample position yields the
+same noise delta across runs and platforms. The selection of which samples to
+perturb is also deterministic based on sample position and channel index.
+
+---
+ third_party/blink/renderer/modules/webaudio/offline_audio_context.cc | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+index fcac660801..368227ccaa 100644
+--- a/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
++++ b/third_party/blink/renderer/modules/webaudio/offline_audio_context.cc
+@@ -26,6 +26,7 @@
+ #include "third_party/blink/renderer/modules/webaudio/offline_audio_context.h"
+ 
+ #include "base/metrics/histogram_functions.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "base/metrics/histogram_macros.h"
+ #include "media/base/audio_glitch_info.h"
+ #include "third_party/blink/public/platform/platform.h"
+@@ -432,6 +433,22 @@ void OfflineAudioContext::FireCompletionEvent() {
+       return;
+     }
+ 
++    // PureCloak: inject deterministic float noise to prevent audio fingerprinting
++    for (unsigned ch = 0; ch < rendered_buffer->numberOfChannels(); ++ch) {
++      NotShared<DOMFloat32Array> channel_data =
++          rendered_buffer->getChannelData(ch);
++      if (channel_data) {
++        float* data = channel_data->Data();
++        size_t len = channel_data->length();
++        for (size_t s = 0; s < len; ++s) {
++          // Apply ±0.0001 noise on ~1% of samples (deterministic)
++          if ((s * 1009 + ch * 3049) % 97 == 0) {
++            data[s] += purecloak::PureCloakFloatNoise(0, s + ch * len);
++          }
++        }
++      }
++    }
++
+     // Call the offline rendering completion event listener and resolve the
+     // promise too.
+     DispatchEvent(*OfflineAudioCompletionEvent::Create(rendered_buffer));

@@ -18,6 +18,7 @@ buildflag_header("buildflags") {
 source_set("common") {
   sources = [
     "purecloak_i18n.h",
+    "purecloak_prng.h",
     "purecloak_seed.cc",
     "purecloak_seed.h",
     "purecloak_switches.cc",

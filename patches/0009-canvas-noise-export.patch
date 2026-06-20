@@ -1,0 +1,168 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 12:05:00 +0800
+Subject: Add deterministic canvas noise to toDataURL/toBlob and ImageData constructor
+
+Under PureCloak, inject deterministic ±1 noise into ~0.1% of RGB
+channels in toDataURL, toBlob, and ImageData() constructor outputs.
+This complements the getImageData noise (Patch 0008) to cover all
+canvas export and pixel-read paths.
+
+The noise is applied by reading the canvas snapshot pixels into a
+writable copy, applying noise, and creating a new image for encoding.
+For the ImageData constructor, noise is injected directly into the
+allocated byte buffer before wrapping it in the ImageData object.
+
+No BUILDFLAG guards are needed since patches only apply during
+PureCloak builds.
+
+---
+ .../core/html/canvas/html_canvas_element.cc         | 51 ++++++++++++++++++++++
+ .../core/html/canvas/image_data.cc                  | 33 ++++++++++++++
+ 2 files changed, 84 insertions(+)
+
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index 490bcdeb5a..e72e67f819 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -34,6 +34,7 @@
+ #include <utility>
+ 
+ #include "base/feature_list.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "base/functional/callback_helpers.h"
+ #include "base/location.h"
+ #include "base/metrics/histogram.h"
+@@ -286,6 +287,32 @@ void UmaHistogramCompressionRatio(
+   histogram->Add(encoded_bytes_per_100_image_bytes);
+ }
+ 
++// PureCloak: inject deterministic noise into canvas pixel data to prevent
++// fingerprinting via toDataURL/toBlob exports.
++void PureCloakCanvasNoiseExport(purecloak::PureCloakNoiseTag, SkPixmap& pixmap) {
++  for (int y = 0; y < pixmap.height(); ++y) {
++    for (int x = 0; x < pixmap.width(); ++x) {
++      if ((x * 1009 + y * 3049) % 997 != 0) {
++        continue;
++      }
++      uint8_t* pixel = static_cast<uint8_t*>(pixmap.writable_addr(x, y));
++      int index = y * pixmap.width() + x;
++      int r_noise = purecloak::PureCloakNoise(0, index);
++      int g_noise = purecloak::PureCloakNoise(0, index + 1);
++      int b_noise = purecloak::PureCloakNoise(0, index + 2);
++      pixel[0] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[0]) + ((r_noise > 0) - (r_noise < 0)), 0,
++          255));
++      pixel[1] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[1]) + ((g_noise > 0) - (g_noise < 0)), 0,
++          255));
++      pixel[2] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[2]) + ((b_noise > 0) - (b_noise < 0)), 0,
++          255));
++    }
++  }
++}
++
+ }  // namespace
+ 
+ HTMLCanvasElement::HTMLCanvasElement(Document& document)
+@@ -1335,6 +1362,24 @@ String HTMLCanvasElement::ToDataURLInternal(
+ 
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(source_buffer);
+   if (image_bitmap) {
++    // PureCloak: inject deterministic noise before encoding to prevent canvas
++    // fingerprinting. Read the snapshot pixels into a writable copy, apply
++    // noise, then create a new image from the noisy data.
++    {
++      SkImageInfo info =
++          image_bitmap->PaintImageForCurrentFrame().GetSkImageInfo();
++      size_t row_bytes = info.minRowBytes();
++      sk_sp<SkData> noisy_data =
++          SkData::MakeUninitialized(info.height() * row_bytes);
++      SkPixmap noisy_pixmap(info, noisy_data->writable_data(), row_bytes);
++      if (image_bitmap->PaintImageForCurrentFrame().readPixels(noisy_pixmap, 0,
++                                                               0)) {
++        PureCloakCanvasNoiseExport(purecloak::PureCloakNoiseTag{},
++                                   noisy_pixmap);
++        image_bitmap = StaticBitmapImage::Create(std::move(noisy_data), info,
++                                                  image_bitmap->GetHdrMetadata());
++      }
++    }
+     std::unique_ptr<ImageDataBuffer> data_buffer =
+         ImageDataBuffer::Create(image_bitmap);
+     if (!data_buffer)
+@@ -1446,6 +1491,22 @@ void HTMLCanvasElement::toBlob(V8BlobCallback* callback,
+   CanvasAsyncBlobCreator* async_creator = nullptr;
+   scoped_refptr<StaticBitmapImage> image_bitmap = Snapshot(kBackBuffer);
+   if (image_bitmap) {
++    // PureCloak: inject deterministic noise before export
++    {
++      SkImageInfo info =
++          image_bitmap->PaintImageForCurrentFrame().GetSkImageInfo();
++      size_t row_bytes = info.minRowBytes();
++      sk_sp<SkData> noisy_data =
++          SkData::MakeUninitialized(info.height() * row_bytes);
++      SkPixmap noisy_pixmap(info, noisy_data->writable_data(), row_bytes);
++      if (image_bitmap->PaintImageForCurrentFrame().readPixels(noisy_pixmap, 0,
++                                                               0)) {
++        PureCloakCanvasNoiseExport(purecloak::PureCloakNoiseTag{},
++                                   noisy_pixmap);
++        image_bitmap = StaticBitmapImage::Create(std::move(noisy_data), info,
++                                                  image_bitmap->GetHdrMetadata());
++      }
++    }
+     auto* options = ImageEncodeOptions::Create();
+     options->setType(ImageEncoderUtils::MimeTypeName(encoding_mime_type));
+     async_creator = MakeGarbageCollected<CanvasAsyncBlobCreator>(
+diff --git a/third_party/blink/renderer/core/html/canvas/image_data.cc b/third_party/blink/renderer/core/html/canvas/image_data.cc
+index efb2734eb6..1dbca29655 100644
+--- a/third_party/blink/renderer/core/html/canvas/image_data.cc
++++ b/third_party/blink/renderer/core/html/canvas/image_data.cc
+@@ -28,6 +28,8 @@
+ 
+ #include "third_party/blink/renderer/core/html/canvas/image_data.h"
+ 
++#include "purecloak/common/purecloak_prng.h"
++
+ #include "third_party/blink/renderer/bindings/core/v8/to_v8_traits.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_image_bitmap_options.h"
+ #include "third_party/blink/renderer/bindings/core/v8/v8_union_float16array_float32array_uint8clampedarray.h"
+@@ -225,6 +227,39 @@ ImageData* ImageData::ValidateAndCreate(
+         size_in_elements, color_type, params.zero_initialize, exception_state);
+     if (!allocated_data)
+       return nullptr;
++
++    // PureCloak: inject deterministic noise into constructor-allocated
++    // ImageData to prevent canvas fingerprinting detection.
++    if (color_type == kRGBA_8888_SkColorType) {
++      base::span<uint8_t> raw_bytes = allocated_data->ByteSpan();
++      for (int y = 0; y < size.height(); ++y) {
++        for (int x = 0; x < size.width(); ++x) {
++          if ((x * 1009 + y * 3049) % 997 != 0) {
++            continue;
++          }
++          int index = y * size.width() + x;
++          int byte_offset = index * 4;
++          int r_noise = purecloak::PureCloakNoise(0, index);
++          int g_noise = purecloak::PureCloakNoise(0, index + 1);
++          int b_noise = purecloak::PureCloakNoise(0, index + 2);
++          raw_bytes[byte_offset + 0] =
++              static_cast<uint8_t>(std::clamp(
++                  static_cast<int>(raw_bytes[byte_offset + 0]) +
++                      ((r_noise > 0) - (r_noise < 0)),
++                  0, 255));
++          raw_bytes[byte_offset + 1] =
++              static_cast<uint8_t>(std::clamp(
++                  static_cast<int>(raw_bytes[byte_offset + 1]) +
++                      ((g_noise > 0) - (g_noise < 0)),
++                  0, 255));
++          raw_bytes[byte_offset + 2] =
++              static_cast<uint8_t>(std::clamp(
++                  static_cast<int>(raw_bytes[byte_offset + 2]) +
++                      ((b_noise > 0) - (b_noise < 0)),
++                  0, 255));
++        }
++      }
++    }
+   }
+ 
+   return MakeGarbageCollected<ImageData>(size, data ? *data : allocated_data,

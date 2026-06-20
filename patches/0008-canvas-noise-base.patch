@@ -1,0 +1,77 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 12:00:00 +0800
+Subject: Add deterministic canvas pixel noise to getImageData
+
+Under PureCloak, inject deterministic ±1 noise into ~0.1% of RGB
+channels in getImageData output. This makes canvas fingerprinting
+produce different results across workspaces while remaining visually
+imperceptible.
+
+The noise function (PureCloakCanvasNoise) uses the PureCloak PRNG
+with a deterministic seed, ensuring the same canvas always produces
+the same noise within a workspace.
+
+No BUILDFLAG guards are needed since patches only apply during
+PureCloak builds.
+
+---
+ .../canvas/canvas2d/base_rendering_context_2d.cc         | 31 ++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index 1c0b0b8e85..33a3493a9e 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -100,6 +100,8 @@
+ #include "third_party/blink/renderer/platform/wtf/forward.h"
+ #include "third_party/blink/renderer/platform/wtf/math_extras.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "purecloak/common/purecloak_prng.h"
++
+ #include "ui/gfx/geometry/skia_conversions.h"
+ #include "ui/gfx/geometry/vector2d_f.h"
+ 
+@@ -121,6 +123,33 @@ bool IsContextProviderValid() {
+          !context_provider_wrapper->ContextProvider().IsContextLost();
+ }
+ 
++// PureCloak: inject deterministic noise into canvas pixel data to prevent
++// canvas fingerprinting. Only ~0.1% of pixels are modified by ±1 per RGB
++// channel, making the change visually imperceptible.
++void PureCloakCanvasNoise(purecloak::PureCloakNoiseTag, SkPixmap& pixmap) {
++  for (int y = 0; y < pixmap.height(); ++y) {
++    for (int x = 0; x < pixmap.width(); ++x) {
++      if ((x * 1009 + y * 3049) % 997 != 0) {
++        continue;
++      }
++      uint8_t* pixel = static_cast<uint8_t*>(pixmap.writable_addr(x, y));
++      int index = y * pixmap.width() + x;
++      int r_noise = purecloak::PureCloakNoise(0, index);
++      int g_noise = purecloak::PureCloakNoise(0, index + 1);
++      int b_noise = purecloak::PureCloakNoise(0, index + 2);
++      pixel[0] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[0]) + ((r_noise > 0) - (r_noise < 0)), 0,
++          255));
++      pixel[1] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[1]) + ((g_noise > 0) - (g_noise < 0)), 0,
++          255));
++      pixel[2] = static_cast<uint8_t>(std::clamp(
++          static_cast<int>(pixel[2]) + ((b_noise > 0) - (b_noise < 0)), 0,
++          255));
++    }
++  }
++}
++
+ }  // namespace
+ 
+ constexpr char kDefaultFont[] = "10px sans-serif";
+@@ -512,6 +541,9 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+           snapshot->PaintImageForCurrentFrame().GetSkImageInfo().bounds();
+       DCHECK(!bounds.intersect(SkIRect::MakeXYWH(sx, sy, sw, sh)));
+     }
++
++    // PureCloak: inject deterministic noise to prevent canvas fingerprinting
++    PureCloakCanvasNoise(purecloak::PureCloakNoiseTag{}, image_data_pixmap);
+   }
+ 
+   return image_data;

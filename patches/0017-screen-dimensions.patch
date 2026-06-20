@@ -1,0 +1,77 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 15:30:00 +0800
+Subject: Spoof screen.width, screen.height, availWidth, availHeight
+
+Under PureCloak, replace real screen dimensions from GetRect() with
+deterministic values from the PureCloak PRNG. Common resolutions are
+selected deterministically per workspace seed:
+
+  - Height: 768, 900, 1024, 1080, 1200, 1440
+  - Width: 1024, 1280, 1366, 1440, 1536, 1680, 1920, 2560
+
+availHeight = height - 40 (common Windows taskbar size), availWidth
+tracks width (no vertical taskbar on most configurations).
+
+---
+ .../core/frame/screen.cc                          | 26 +++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/frame/screen.cc b/third_party/blink/renderer/core/frame/screen.cc
+index 69ffc2b05f..38c042ac44 100644
+--- a/third_party/blink/renderer/core/frame/screen.cc
++++ b/third_party/blink/renderer/core/frame/screen.cc
+@@ -29,6 +29,7 @@
+ #include "third_party/blink/renderer/core/frame/screen.h"
+ 
+ #include "base/numerics/safe_conversions.h"
++#include "purecloak/common/purecloak_prng.h"
+ #include "services/network/public/mojom/permissions_policy/permissions_policy_feature.mojom-blink.h"
+ #include "third_party/blink/renderer/core/event_target_names.h"
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+@@ -81,13 +82,23 @@ bool Screen::AreWebExposedScreenPropertiesEqual(
+ int Screen::height() const {
+   if (!DomWindow())
+     return 0;
+-  return GetRect(/*available=*/false).height();
++  // PureCloak: return deterministic screen height from the PRNG.
++  // Common screen heights: 768, 900, 1024, 1080, 1200, 1440
++  const int kHeights[] = {768, 900, 1024, 1080, 1200, 1440};
++  int idx = purecloak::PureCloakNoise(0, 400) % 6;
++  idx = (idx + 6) % 6;
++  return kHeights[idx];
+ }
+ 
+ int Screen::width() const {
+   if (!DomWindow())
+     return 0;
+-  return GetRect(/*available=*/false).width();
++  // PureCloak: return deterministic screen width from the PRNG.
++  // Common screen widths: 1024, 1280, 1366, 1440, 1536, 1680, 1920, 2560
++  const int kWidths[] = {1024, 1280, 1366, 1440, 1536, 1680, 1920, 2560};
++  int idx = purecloak::PureCloakNoise(0, 401) % 8;
++  idx = (idx + 8) % 8;
++  return kWidths[idx];
+ }
+ 
+ unsigned Screen::colorDepth() const {
+@@ -124,13 +135,18 @@ int Screen::availTop() const {
+ int Screen::availHeight() const {
+   if (!DomWindow())
+     return 0;
+-  return GetRect(/*available=*/true).height();
++  // PureCloak: availHeight = height - taskbar.
++  // Common taskbar sizes: 0 (Linux/fullscreen), 40 (Windows), 48 (Windows),
++  // 95 (macOS Dock). Return height - 40 as a reasonable default.
++  int h = height();
++  return h - 40;
+ }
+ 
+ int Screen::availWidth() const {
+   if (!DomWindow())
+     return 0;
+-  return GetRect(/*available=*/true).width();
++  // PureCloak: availWidth typically equals width (no vertical taskbar usually).
++  return width();
+ }
+ 
+ void Screen::Trace(Visitor* visitor) const {

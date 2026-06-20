@@ -1,0 +1,74 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 15:30:00 +0800
+Subject: Spoof window.outerHeight and window.outerWidth
+
+Under PureCloak, replace real window dimensions from RootWindowRect()
+with deterministic values derived from the PRNG-spoofed screen
+dimensions minus typical browser chrome heights (75-135px for the
+browser UI, 0-14px for window border/decorations). This prevents
+window dimension fingerprinting while maintaining realistic values.
+
+---
+ .../core/frame/local_dom_window.cc                 | 29 ++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/third_party/blink/renderer/core/frame/local_dom_window.cc b/third_party/blink/renderer/core/frame/local_dom_window.cc
+index fa076585bf..eea443918a 100644
+--- a/third_party/blink/renderer/core/frame/local_dom_window.cc
++++ b/third_party/blink/renderer/core/frame/local_dom_window.cc
+@@ -27,6 +27,7 @@
+ #include "third_party/blink/renderer/core/frame/local_dom_window.h"
+ 
+ #include <memory>
++#include "purecloak/common/purecloak_prng.h"
+ #include <optional>
+ #include <utility>
+ 
+@@ -1612,12 +1613,18 @@ int LocalDOMWindow::outerHeight() const {
+     return 0;
+ 
+   ChromeClient& chrome_client = page->GetChromeClient();
+-  if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
+-    return static_cast<int>(
+-        lroundf(chrome_client.RootWindowRect(*frame).height() *
+-                chrome_client.GetScreenInfo(*frame).device_scale_factor));
+-  }
+-  return chrome_client.RootWindowRect(*frame).height();
++  // PureCloak: spoof outerHeight using PRNG-selected screen height minus
++  // common browser chrome heights (typically 75-135px).
++  const int kChromeHeights[] = {75, 93, 100, 115, 128, 135};
++  int screen_h = Screen::height();
++  int chrome_idx = purecloak::PureCloakNoise(0, 402) % 6;
++  chrome_idx = (chrome_idx + 6) % 6;
++  int spoofed = screen_h - kChromeHeights[chrome_idx];
++  // Ensure a minimum reasonable outerHeight (at least 500px). Use the real
++  // value as a fallback if our spoof is too small.
++  if (spoofed < 500)
++    return chrome_client.RootWindowRect(*frame).height();
++  return spoofed;
+ }
+ 
+ int LocalDOMWindow::outerWidth() const {
+@@ -1637,12 +1644,16 @@ int LocalDOMWindow::outerWidth() const {
+     return 0;
+ 
+   ChromeClient& chrome_client = page->GetChromeClient();
+-  if (page->GetSettings().GetReportScreenSizeInPhysicalPixelsQuirk()) {
+-    return static_cast<int>(
+-        lroundf(chrome_client.RootWindowRect(*frame).width() *
+-                chrome_client.GetScreenInfo(*frame).device_scale_factor));
+-  }
+-  return chrome_client.RootWindowRect(*frame).width();
++  // PureCloak: spoof outerWidth to match our spoofed screen width minus
++  // window chrome borders (typically 0-16px on each side).
++  int screen_w = Screen::width();
++  const int kBorderWidths[] = {0, 2, 4, 8, 14};
++  int border_idx = purecloak::PureCloakNoise(0, 403) % 5;
++  border_idx = (border_idx + 5) % 5;
++  int spoofed = screen_w - kBorderWidths[border_idx];
++  if (spoofed < 800)
++    return chrome_client.RootWindowRect(*frame).width();
++  return spoofed;
+ }
+ 
+ gfx::Size LocalDOMWindow::GetViewportSize() const {

@@ -1,0 +1,138 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 11:30:00 +0800
+Subject: Route synthetic gestures directly under PureCloak
+
+When kFromDebugger is stripped from input events (Patch 0006),
+the kFromDebugger-based routing in SyntheticGestureTargetAura
+breaks: without the flag, synthetic gesture events would be routed
+through the normal event injection path instead of being dispatched
+directly to the target window.
+
+Under PureCloak, always dispatch synthetic gesture events directly
+to the target window via window->delegate()->OnEvent(), since
+synthetic gestures are inherently debugger-originated and must
+reach the correct target regardless of which tab is active.
+
+Affected dispatch methods:
+  - DispatchWebTouchEventToPlatform
+  - DispatchWebMouseWheelEventToPlatform
+  - DispatchWebGestureEventToPlatform (pinch + scroll cases)
+  - DispatchWebMouseEventToPlatform
+
+Also adds the required buildflags include.
+
+---
+ content/browser/renderer_host/input/synthetic_gesture_target_aura.cc | 52 +++++++++++++++++++++++++++++++
+ 1 file changed, 52 insertions(+)
+
+diff --git a/content/browser/renderer_host/input/synthetic_gesture_target_aura.cc b/content/browser/renderer_host/input/synthetic_gesture_target_aura.cc
+index ef2e910a3f..800abb39ba 100644
+--- a/content/browser/renderer_host/input/synthetic_gesture_target_aura.cc
++++ b/content/browser/renderer_host/input/synthetic_gesture_target_aura.cc
+@@ -9,6 +9,8 @@
+ #include <memory>
+ #include <vector>
+ 
++#include "purecloak/common/buildflags.h"
++
+ #include "content/browser/renderer_host/render_widget_host_impl.h"
+ #include "content/browser/renderer_host/render_widget_host_view_aura.h"
+ #include "ui/aura/window.h"
+@@ -164,6 +166,11 @@ void SyntheticGestureTargetAura::DispatchWebTouchEventToPlatform(
+     // Synthetic events from devtools debugger need to be dispatched explicitly
+     // to the target window. Otherwise they will end up in the active tab
+     // which might be different from the target.
++    // PureCloak: kFromDebugger is stripped (see Patch 0006), always dispatch
++    // directly since synthetic gestures are inherently debugger-originated.
++#if BUILDFLAG(IS_PURECLOAK)
++    window->delegate()->OnEvent(event.get());
++#else
+     if (web_touch.GetModifiers() & blink::WebInputEvent::kFromDebugger) {
+       window->delegate()->OnEvent(event.get());
+     } else {
+@@ -173,6 +180,7 @@ void SyntheticGestureTargetAura::DispatchWebTouchEventToPlatform(
+       if (details.dispatcher_destroyed)
+         break;
+     }
++#endif
+   }
+ }
+ 
+@@ -204,6 +212,11 @@ void SyntheticGestureTargetAura::DispatchWebMouseWheelEventToPlatform(
+   // Synthetic events from devtools debugger need to be dispatched explicitly
+   // to the target window. Otherwise they will end up in the active tab
+   // which might be different from the target.
++  // PureCloak: kFromDebugger is stripped (see Patch 0006), always dispatch
++  // directly since synthetic gestures are inherently debugger-originated.
++#if BUILDFLAG(IS_PURECLOAK)
++  window->delegate()->OnEvent(&wheel_event);
++#else
+   if (web_wheel.GetModifiers() & blink::WebInputEvent::kFromDebugger) {
+     window->delegate()->OnEvent(&wheel_event);
+   } else {
+@@ -213,6 +226,7 @@ void SyntheticGestureTargetAura::DispatchWebMouseWheelEventToPlatform(
+     if (details.dispatcher_destroyed)
+       return;
+   }
++#endif
+ }
+ 
+ void SyntheticGestureTargetAura::DispatchWebGestureEventToPlatform(
+@@ -238,12 +252,18 @@ void SyntheticGestureTargetAura::DispatchWebGestureEventToPlatform(
+     // Synthetic events from devtools debugger need to be dispatched explicitly
+     // to the target window. Otherwise they will end up in the active tab
+     // which might be different from the target.
++    // PureCloak: kFromDebugger is stripped (see Patch 0006), always dispatch
++    // directly since synthetic gestures are inherently debugger-originated.
++#if BUILDFLAG(IS_PURECLOAK)
++    window->delegate()->OnEvent(&pinch_event);
++#else
+     if (web_gesture.GetModifiers() & blink::WebInputEvent::kFromDebugger) {
+       window->delegate()->OnEvent(&pinch_event);
+     } else {
+       pinch_event.ConvertLocationToTarget(window, window->GetRootWindow());
+       event_injector_.Inject(window->GetHost(), &pinch_event);
+     }
++#endif
+     return;
+   }
+ 
+@@ -260,12 +280,18 @@ void SyntheticGestureTargetAura::DispatchWebGestureEventToPlatform(
+   // Synthetic events from devtools debugger need to be dispatched explicitly
+   // to the target window. Otherwise they will end up in the active tab
+   // which might be different from the target.
++  // PureCloak: kFromDebugger is stripped (see Patch 0006), always dispatch
++  // directly since synthetic gestures are inherently debugger-originated.
++#if BUILDFLAG(IS_PURECLOAK)
++  window->delegate()->OnEvent(&scroll_event);
++#else
+   if (web_gesture.GetModifiers() & blink::WebInputEvent::kFromDebugger) {
+     window->delegate()->OnEvent(&scroll_event);
+   } else {
+     scroll_event.ConvertLocationToTarget(window, window->GetRootWindow());
+     event_injector_.Inject(window->GetHost(), &scroll_event);
+   }
++#endif
+ }
+ 
+ void SyntheticGestureTargetAura::DispatchWebMouseEventToPlatform(
+@@ -294,6 +320,11 @@ void SyntheticGestureTargetAura::DispatchWebMouseEventToPlatform(
+   // Synthetic events from devtools debugger need to be dispatched explicitly
+   // to the target window. Otherwise they will end up in the active tab
+   // which might be different from the target.
++  // PureCloak: kFromDebugger is stripped (see Patch 0006), always dispatch
++  // directly since synthetic gestures are inherently debugger-originated.
++#if BUILDFLAG(IS_PURECLOAK)
++  window->delegate()->OnEvent(&mouse_event);
++#else
+   if (web_mouse_event.GetModifiers() & blink::WebInputEvent::kFromDebugger) {
+     window->delegate()->OnEvent(&mouse_event);
+   } else {
+@@ -303,6 +334,7 @@ void SyntheticGestureTargetAura::DispatchWebMouseEventToPlatform(
+     if (details.dispatcher_destroyed)
+       return;
+   }
++#endif
+ }
+ 
+ content::mojom::GestureSourceType

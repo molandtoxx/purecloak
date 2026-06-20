@@ -1,0 +1,59 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 19:00:00 +0800
+Subject: Replace ICE candidate IP at allocator level for anti-fingerprinting
+
+Adds a second layer of IP spoofing in BasicPortAllocatorSession::
+OnCandidateReady(), which is called when each port signals a new
+candidate. After the candidate is sanitized by the allocator, PureCloak
+replaces the IP address with the spoofed value from
+--fingerprint-webrtc-ip if configured.
+
+This complements the Port::AddAddress() level spoofing (patch #49) by
+providing defense-in-depth at the allocator level. Together these ensure
+that even if a port creates candidates through a different code path,
+the IP is still spoofed before being signaled to the application.
+
+Only host candidates (is_local()) are spoofed to preserve the
+functionality of STUN/TURN relay candidates.
+
+---
+ third_party/webrtc/p2p/client/basic_port_allocator.cc | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/webrtc/p2p/client/basic_port_allocator.cc b/third_party/webrtc/p2p/client/basic_port_allocator.cc
+--- a/third_party/webrtc/p2p/client/basic_port_allocator.cc
++++ b/third_party/webrtc/p2p/client/basic_port_allocator.cc
+@@ -55,6 +55,12 @@
+ #include "rtc_base/strings/string_builder.h"
+ #include "rtc_base/trace_event.h"
+ 
++// PureCloak: ICE candidate IP spoofing for anti-fingerprinting
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
++
+ namespace webrtc {
+ namespace {
+ 
+@@ -992,7 +998,19 @@ void BasicPortAllocatorSession::OnCandidateReady(Port* port,
+ 
+   if (data->ready() && CheckCandidateFilter(c)) {
+     std::vector<Candidate> candidates;
+-    candidates.push_back(allocator_->SanitizeCandidate(c));
++    Candidate sanitized = allocator_->SanitizeCandidate(c);
++#if BUILDFLAG(IS_PURECLOAK)
++    // PureCloak: replace real IP with spoofed value from --fingerprint-webrtc-ip
++    if (sanitized.is_local()) {
++      const auto& spoofed_ip =
++          purecloak::PureCloakSeed::GetInstance()->webrtc_ip();
++      if (!spoofed_ip.empty()) {
++        SocketAddress spoofed_addr(spoofed_ip, sanitized.address().port());
++        sanitized.set_address(spoofed_addr);
++      }
++    }
++#endif
++    candidates.push_back(sanitized);
+     NotifyCandidatesReady(this, candidates);
+   } else {
+     RTC_LOG(LS_INFO) << "Discarding candidate because it doesn't match filter.";

@@ -1,0 +1,69 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 18:30:00 +0800
+Subject: Normalize network timing to prevent timing-based fingerprinting
+
+When running under PureCloak with noise enabled, normalize all connection
+timing metrics (DNS lookup, TCP connect, SSL handshake) to the request
+start time. This prevents timing-based fingerprinting that measures:
+
+  - DNS resolution time (reveals local resolver/cache state)
+  - TCP connect time (reveals network latency/RTT)
+  - SSL handshake time (reveals hardware crypto acceleration)
+
+When behind a proxy, local DNS/connect/SSL timing should not be observable
+since the proxy handles these operations. Setting timing fields to
+request_start makes them appear instantaneous, matching the behavior of
+proxied connections.
+
+---
+ net/http/http_network_transaction.cc | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/net/http/http_network_transaction.cc b/net/http/http_network_transaction.cc
+--- a/net/http/http_network_transaction.cc
++++ b/net/http/http_network_transaction.cc
+@@ -78,6 +78,11 @@
+ #include "net/socket/next_proto.h"
+ #include "net/socket/transport_client_socket_pool.h"
+ #include "net/spdy/spdy_http_stream.h"
++#include "purecloak/common/buildflags.h"
++
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "net/spdy/spdy_session.h"
+ #include "net/spdy/spdy_session_pool.h"
+ #include "net/ssl/ssl_cert_request_info.h"
+@@ -743,6 +748,33 @@
+   load_timing_info->proxy_resolve_end = proxy_info_.proxy_resolve_end_time();
+   load_timing_info->send_start = send_start_time_;
+   load_timing_info->send_end = send_end_time_;
++
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Normalize DNS/connect/SSL timing to prevent timing-based
++  // fingerprinting. When behind a proxy, local DNS/connect/SSL timing should
++  // not be observable -- the proxy handles these. Set all connection timing
++  // fields to request_start to make them appear instantaneous.
++  //
++  // This prevents fingerprinting techniques that measure:
++  //   - DNS resolution time (reveals local resolver/cache state)
++  //   - TCP connect time (reveals network latency/RTT)
++  //   - SSL handshake time (reveals hardware crypto acceleration)
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    load_timing_info->connect_timing.domain_lookup_start =
++        load_timing_info->request_start;
++    load_timing_info->connect_timing.domain_lookup_end =
++        load_timing_info->request_start;
++    load_timing_info->connect_timing.connect_start =
++        load_timing_info->request_start;
++    load_timing_info->connect_timing.connect_end =
++        load_timing_info->request_start;
++    load_timing_info->connect_timing.ssl_start =
++        load_timing_info->request_start;
++    load_timing_info->connect_timing.ssl_end =
++        load_timing_info->request_start;
++  }
++#endif
++
+   return true;
+ }

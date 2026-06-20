@@ -18,6 +18,8 @@ buildflag_header("buildflags") {
 source_set("common") {
   sources = [
     "purecloak_i18n.h",
+    "purecloak_seed.cc",
+    "purecloak_seed.h",
     "purecloak_switches.cc",
     "purecloak_switches.h",
   ]
@@ -25,5 +27,15 @@ source_set("common") {
     ":buildflags",
     "//base",
     "//base:i18n",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [ "purecloak_seed_unittest.cc" ]
+  deps = [
+    ":common",
+    "//base/test:test_support",
+    "//testing/gtest",
   ]
 }

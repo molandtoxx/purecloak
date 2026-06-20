@@ -1,0 +1,36 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 20:45:00 +0800
+Subject: Normalize GPU capability values to match NVIDIA RTX 4090 hardware
+
+Sets GPU capabilities to consistent NVIDIA RTX 4090-class values when
+PureCloak noise is enabled. This prevents capability-based fingerprinting
+where different GPU hardware reports different supported values.
+
+Normalizes:
+- max_msaa_samples → "16" (RTX 4090 supports 16x MSAA)
+
+Depends on patch #31 (GL renderer/vendor/version normalization) for
+the PureCloak buildflag and seed includes.
+
+---
+ gpu/config/gpu_info_collector.cc | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/gpu/config/gpu_info_collector.cc b/gpu/config/gpu_info_collector.cc
+--- a/gpu/config/gpu_info_collector.cc
++++ b/gpu/config/gpu_info_collector.cc
+@@ -682,6 +682,14 @@ bool CollectGraphicsInfoGL(GPUInfo* gpu_info, gl::GLDisplay* display) {
+   if (!active_gpu_identified)
+     IdentifyActiveGPU(gpu_info);
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: normalize GPU capability values to match real hardware
++  // (NVIDIA RTX 4090-class) when noise is enabled.
++  if (purecloak::PureCloakSeed::GetInstance()->noise_enabled()) {
++    gpu_info->max_msaa_samples = "16";
++  }
++#endif
++
+   return true;
+ }
+ 

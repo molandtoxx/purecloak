@@ -1,0 +1,24 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Add //purecloak/common:buildflags dependency to content/browser
+
+Add PureCloak buildflag header dependency so that Chromium source files
+in content/browser can use BUILDFLAG(IS_PURECLOAK) for conditional
+compilation of anti-detection patches.
+
+---
+ content/browser/BUILD.gn | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/content/browser/BUILD.gn b/content/browser/BUILD.gn
+index abcdef1..abcdef2 100644
+--- a/content/browser/BUILD.gn
++++ b/content/browser/BUILD.gn
+@@ -254,6 +254,7 @@
+     "//net",
+     "//net:extras",
+     "//printing/buildflags",
++    "//purecloak/common:buildflags",
+     "//services/audio",
+     "//services/audio/public/cpp",
+     "//services/audio/public/mojom",

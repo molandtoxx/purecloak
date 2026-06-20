@@ -1,0 +1,39 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Hide browser command line via CDP protocol in PureCloak mode
+
+When BUILDFLAG(IS_PURECLOAK) is set, GetBrowserCommandLine always
+returns an error instead of the command line. This prevents CDP
+clients from reading --proxy-server, --user-data-dir, and other
+sensitive command-line switches that could leak fingerprint
+configuration or be used for automation detection.
+
+---
+ content/browser/devtools/protocol/browser_handler.cc | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/content/browser/devtools/protocol/browser_handler.cc b/content/browser/devtools/protocol/browser_handler.cc
+index abcdef1..abcdef2 100644
+--- a/content/browser/devtools/protocol/browser_handler.cc
++++ b/content/browser/devtools/protocol/browser_handler.cc
+@@ -27,6 +27,7 @@
+ #include "build/build_config.h"
+ #include "build/util/chromium_git_revision.h"
++#include "purecloak/common/buildflags.h"
+ #include "components/download/public/common/download_item.h"
+
+@@ -674,6 +675,9 @@
+ Response BrowserHandler::GetBrowserCommandLine(
+     std::unique_ptr<protocol::Array<std::string>>* arguments) {
++#if BUILDFLAG(IS_PURECLOAK)
++  return Response::ServerError(
++      "Command line not returned in PureCloak mode.");
++#else
+   *arguments = std::make_unique<protocol::Array<std::string>>();
+   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+   // The commandline is potentially sensitive, only return it if it
+@@ -687,4 +691,5 @@
+         "Command line not returned because --enable-automation not set.");
+   }
++#endif
+ }

@@ -1,0 +1,31 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Suppress --enable-automation propagation to renderer processes
+
+When BUILDFLAG(IS_PURECLOAK) is set, do not propagate the
+--enable-automation command-line switch to renderer processes.
+This prevents navigator.webdriver from being set to true and
+hides the automation signal from detection scripts in child
+processes.
+
+---
+ content/browser/renderer_host/render_process_host_impl.cc | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/content/browser/renderer_host/render_process_host_impl.cc b/content/browser/renderer_host/render_process_host_impl.cc
+index abcdef1..abcdef2 100644
+--- a/content/browser/renderer_host/render_process_host_impl.cc
++++ b/content/browser/renderer_host/render_process_host_impl.cc
+@@ -72,6 +72,7 @@
+ #include "build/build_config.h"
+ #include "cc/base/switches.h"
++#include "purecloak/common/buildflags.h"
+ #include "components/embedder_support/switches.h"
+ #include "components/input/features.h"
+
+@@ -3868,7 +3869,9 @@
+       switches::kDomAutomationController,
++#if !BUILDFLAG(IS_PURECLOAK)
+       switches::kEnableAutomation,
++#endif
+       switches::kEnableExperimentalAccessibilityLabelsDebugging,

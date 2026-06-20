@@ -1,0 +1,30 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 09:46:00 +0800
+Subject: Disable AutomationControlled Blink feature for renderer processes
+
+When BUILDFLAG(IS_PURECLOAK) is set, automatically disable the
+AutomationControlled Blink runtime-enabled feature for all renderer
+processes. This forces navigator.webdriver to return false and hides
+the automation signal from JavaScript detection scripts, even if
+--enable-automation is set at the browser level.
+
+---
+ chrome/browser/chrome_content_browser_client.cc | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/chrome/browser/chrome_content_browser_client.cc b/chrome/browser/chrome_content_browser_client.cc
+index abcdef1..abcdef2 100644
+--- a/chrome/browser/chrome_content_browser_client.cc
++++ b/chrome/browser/chrome_content_browser_client.cc
+@@ -2898,6 +2898,11 @@
+     }
+ #endif
+
++#if BUILDFLAG(IS_PURECLOAK)
++    command_line->AppendSwitchASCII(switches::kDisableBlinkFeatures,
++                                    "AutomationControlled");
++#endif
++
+     MaybeCopyDisableWebRtcEncryptionSwitch(command_line, browser_command_line,
+                                            chrome::GetChannel());
+     if (process) {

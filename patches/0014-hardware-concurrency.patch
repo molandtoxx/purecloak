@@ -1,0 +1,40 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 15:00:00 +0800
+Subject: Spoof navigator.hardwareConcurrency for anti-fingerprinting
+
+Under PureCloak, replace the real number of processors reported by
+navigator.hardwareConcurrency with a deterministic value from the
+PureCloak PRNG. The value is selected from common real-world hardware
+concurrency values (2, 4, 6, 8, 12, 16, 24) deterministically per
+workspace seed.
+
+No BUILDFLAG guards are needed since patches only apply during
+PureCloak builds.
+
+---
+ .../core/frame/navigator_concurrent_hardware.cc                 | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+index f5c0db2d1b..1e839fe035 100644
+--- a/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/frame/navigator_concurrent_hardware.cc
+@@ -5,11 +5,17 @@
+ #include "third_party/blink/renderer/core/frame/navigator_concurrent_hardware.h"
+ 
+ #include "base/system/sys_info.h"
++#include "purecloak/common/purecloak_prng.h"
+ 
+ namespace blink {
+ 
+ unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
+-  return static_cast<unsigned>(base::SysInfo::NumberOfProcessors());
++  // PureCloak: return a deterministic value from the PRNG.
++  // Common hardware concurrency values: 2, 4, 6, 8, 12, 16, 24
++  const unsigned kConcurrencyValues[] = {2, 4, 6, 8, 12, 16, 24};
++  int idx = purecloak::PureCloakNoise(0, 300) % 7;
++  idx = (idx + 7) % 7;
++  return kConcurrencyValues[idx];
+ }
+ 
+ }  // namespace blink

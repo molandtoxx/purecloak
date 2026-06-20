@@ -1,0 +1,42 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 15:01:00 +0800
+Subject: Spoof navigator.deviceMemory for anti-fingerprinting
+
+Under PureCloak, replace the real device memory reported by
+navigator.deviceMemory with a deterministic value from the PureCloak
+PRNG. The value is selected from common device memory values (0.25, 0.5,
+1, 2, 4, 8 GB) deterministically per workspace seed.
+
+No BUILDFLAG guards are needed since patches only apply during
+PureCloak builds.
+
+---
+ .../core/frame/navigator_device_memory.cc                       | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_device_memory.cc b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+index 05fa33e456..3f89879b9d 100644
+--- a/third_party/blink/renderer/core/frame/navigator_device_memory.cc
++++ b/third_party/blink/renderer/core/frame/navigator_device_memory.cc
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/core/frame/navigator_device_memory.h"
+ 
++#include "purecloak/common/purecloak_prng.h"
+ #include "third_party/blink/public/common/device_memory/approximated_device_memory.h"
+ #include "third_party/blink/public/mojom/use_counter/metrics/web_feature.mojom-shared.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+@@ -12,7 +13,12 @@
+ namespace blink {
+ 
+ float NavigatorDeviceMemory::deviceMemory() const {
+-  return ApproximatedDeviceMemory::GetApproximatedDeviceMemory();
++  // PureCloak: return a deterministic value from the PRNG.
++  // Common device memory values: 0.25, 0.5, 1, 2, 4, 8 (GB)
++  const float kMemoryValues[] = {0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
++  int idx = purecloak::PureCloakNoise(0, 301) % 6;
++  idx = (idx + 6) % 6;
++  return kMemoryValues[idx];
+ }
+ 
+ }  // namespace blink

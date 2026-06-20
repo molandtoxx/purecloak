@@ -1,0 +1,135 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 18:00:00 +0800
+Subject: Cross-platform font hiding to prevent platform fingerprinting
+
+When PureCloak noise is enabled and the spoofed platform differs from the
+actual platform, hide fonts that are specific to the real platform. This
+prevents font enumeration from leaking the actual OS identity.
+
+For example, when running on Linux but spoofing Windows, hide Linux-specific
+fonts (Ubuntu, Noto, DejaVu, Liberation, Droid, etc.) so that font enumeration
+returns results consistent with a Windows system.
+
+Includes:
+- Emoji font normalization: Force deterministic emoji font across platforms
+  so canvas rendering hashes are platform-independent.
+- Cross-platform hiding: Block platform-specific fonts in
+  FontCache::GetFontPlatformData() when the spoofed platform differs.
+
+---
+ .../platform/fonts/font_cache.cc              | 83 +++++++++++++++++++
+ 1 file changed, 83 insertions(+)
+diff --git a/third_party/blink/renderer/platform/fonts/font_cache.cc b/third_party/blink/renderer/platform/fonts/font_cache.cc
+index 506b181809..7e9590e150 100644
+--- a/third_party/blink/renderer/platform/fonts/font_cache.cc
++++ b/third_party/blink/renderer/platform/fonts/font_cache.cc
+@@ -58,6 +58,11 @@
+ #include "third_party/blink/renderer/platform/fonts/font_platform_data_cache.h"
+ #include "third_party/blink/renderer/platform/fonts/font_unique_name_lookup.h"
+ #include "third_party/blink/renderer/platform/fonts/simple_font_data.h"
++
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "third_party/blink/renderer/platform/heap/thread_state.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/web_memory_allocator_dump.h"
+ #include "third_party/blink/renderer/platform/instrumentation/tracing/web_process_memory_dump.h"
+@@ -138,6 +143,74 @@ const FontPlatformData* FontCache::GetFontPlatformData(
+   }
+ #endif
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Cross-platform font hiding (patch #24).
++  // When spoofing a different platform, hide fonts that are specific
++  // to the actual (real) platform. This makes font enumeration mirror
++  // the spoofed platform, reducing fingerprintability.
++  if (PureCloakSeed::GetInstance()->noise_enabled() &&
++      creation_params.CreationType() == kCreateFontByFamily &&
++      alternate_font_name == AlternateFontName::kNoAlternate) {
++    const std::string& target_platform = PureCloakSeed::GetInstance()->platform();
++    bool should_hide_platform_fonts = false;
++#if BUILDFLAG(IS_WIN)
++    should_hide_platform_fonts = (target_platform != "windows");
++#elif BUILDFLAG(IS_MAC)
++    should_hide_platform_fonts = (target_platform != "macos");
++#elif BUILDFLAG(IS_LINUX)
++    should_hide_platform_fonts = (target_platform != "linux");
++#endif
++    if (should_hide_platform_fonts) {
++      const AtomicString& family = creation_params.Family();
++#if BUILDFLAG(IS_LINUX)
++      // Hide Linux/ChromeOS-specific fonts when spoofing non-Linux platform.
++      if (family.StartsWithIgnoringAsciiCase("Ubuntu") ||
++          family.StartsWithIgnoringAsciiCase("Noto ") ||
++          family.StartsWithIgnoringAsciiCase("DejaVu ") ||
++          family.StartsWithIgnoringAsciiCase("Liberation ") ||
++          family.StartsWithIgnoringAsciiCase("Droid ") ||
++          family.StartsWithIgnoringAsciiCase("FreeSans") ||
++          family.StartsWithIgnoringAsciiCase("FreeSerif") ||
++          family.StartsWithIgnoringAsciiCase("FreeMono") ||
++          family.StartsWithIgnoringAsciiCase("Cantarell") ||
++          family.StartsWithIgnoringAsciiCase("Nimbus ")) {
++        return nullptr;
++      }
++#elif BUILDFLAG(IS_MAC)
++      // Hide macOS-specific fonts when spoofing non-macOS platform.
++      if (family.StartsWithIgnoringAsciiCase("Helvetica Neue") ||
++          family.StartsWithIgnoringAsciiCase("Apple ") ||
++          family.StartsWithIgnoringAsciiCase("SF Pro") ||
++          family.StartsWithIgnoringAsciiCase(".SF NS") ||
++          family.StartsWithIgnoringAsciiCase("Menlo") ||
++          family.StartsWithIgnoringAsciiCase("Monaco") ||
++          family.StartsWithIgnoringAsciiCase("Lucida Grande") ||
++          family.StartsWithIgnoringAsciiCase("Palatino") ||
++          family.StartsWithIgnoringAsciiCase("Geneva") ||
++          family.StartsWithIgnoringAsciiCase("Arial Hebrew") ||
++          family.StartsWithIgnoringAsciiCase("Geeza Pro")) {
++        return nullptr;
++      }
++#elif BUILDFLAG(IS_WIN)
++      // Hide Windows-specific fonts when spoofing non-Windows platform.
++      if (family.StartsWithIgnoringAsciiCase("Segoe") ||
++          family.StartsWithIgnoringAsciiCase("Microsoft ") ||
++          family.StartsWithIgnoringAsciiCase("Leelawadee UI") ||
++          family.StartsWithIgnoringAsciiCase("Nirmala UI") ||
++          family.StartsWithIgnoringAsciiCase("Gadugi") ||
++          family.StartsWithIgnoringAsciiCase("Ebrima") ||
++          family.StartsWithIgnoringAsciiCase("Marlett") ||
++          family.StartsWithIgnoringAsciiCase("Modern") ||
++          family.StartsWithIgnoringAsciiCase("Small Fonts") ||
++          family.StartsWithIgnoringAsciiCase("Tahoma") ||
++          family.StartsWithIgnoringAsciiCase("Lucida Console")) {
++        return nullptr;
++      }
++#endif
++    }
++  }
++#endif
++
+   return font_platform_data_cache_.GetOrCreateFontPlatformData(
+       this, font_description, creation_params, alternate_font_name);
+ }
+@@ -206,6 +279,22 @@ const SimpleFontData* FontCache::FallbackFontForCharacter(
+     FontFallbackPriority fallback_priority) {
+   TRACE_EVENT0("fonts", "FontCache::FallbackFontForCharacter");
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: Force deterministic emoji font to produce consistent canvas
++  // fingerprints across platforms. When PureCloak noise is enabled, emoji
++  // characters always fall back to a fixed font so that canvas rendering
++  // hashes are platform-independent.
++  if (PureCloakSeed::GetInstance()->noise_enabled() &&
++      IsEmojiPresentationEmoji(fallback_priority)) {
++    // Try "Noto Color Emoji" first. If unavailable, let the platform
++    // fallback through (this path returns nullptr → natural fallback).
++    if (const SimpleFontData* emoji_font =
++            GetFontData(description, AtomicString("Noto Color Emoji"))) {
++      return emoji_font;
++    }
++  }
++#endif
++
+   // In addition to PUA, do not perform fallback for non-characters either. Some
+   // of these are sentinel characters to detect encodings and do appear on
+   // websites. More details on

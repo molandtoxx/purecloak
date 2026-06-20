@@ -1,0 +1,57 @@
+From: PureCloak Authors <purecloak-dev@purecloak.org>
+Date: Sat, 20 Jun 2026 18:45:00 +0800
+Subject: Spoof ICE candidate IP addresses to prevent WebRTC IP leaks
+
+When PureCloak is configured with --fingerprint-webrtc-ip, host
+ICE candidates created in Port::AddAddress() will have their IP
+address replaced with the spoofed value.
+
+This prevents WebRTC-based IP leaks that can reveal the real local
+IP address even when behind a proxy, since WebRTC can bypass proxy
+settings for peer-to-peer connections. By replacing host candidate
+IPs with a spoofed value, the real IP is never exposed through
+ICE/STUN signaling.
+
+The port number is preserved so connectivity is not affected.
+Only host candidates (type kHost/c.is_local()) are spoofed, which
+are the ones that leak real local IPs.
+
+---
+ third_party/webrtc/p2p/base/port.cc | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/third_party/webrtc/p2p/base/port.cc b/third_party/webrtc/p2p/base/port.cc
+--- a/third_party/webrtc/p2p/base/port.cc
++++ b/third_party/webrtc/p2p/base/port.cc
+@@ -51,6 +51,12 @@
+ #include "rtc_base/socket_address.h"
+ #include "rtc_base/span_helpers.h"
+ #include "rtc_base/string_encode.h"
++
++// PureCloak: WebRTC IP spoofing for anti-fingerprinting
++#include "purecloak/common/buildflags.h"
++#if BUILDFLAG(IS_PURECLOAK)
++#include "purecloak/common/purecloak_seed.h"
++#endif
+ #include "rtc_base/string_utils.h"
+ #include "rtc_base/strings/string_builder.h"
+ #include "rtc_base/trace_event.h"
+@@ -244,6 +250,18 @@ void Port::AddAddress(const SocketAddress& address,
+   c.set_related_address(related_address);
+   c.set_network_slice(network_->network_slice());
+ 
++#if BUILDFLAG(IS_PURECLOAK)
++  // PureCloak: spoof host candidate IP to prevent WebRTC IP leak
++  if (c.is_local()) {
++    const auto& spoofed_ip =
++        purecloak::PureCloakSeed::GetInstance()->webrtc_ip();
++    if (!spoofed_ip.empty()) {
++      SocketAddress spoofed_addr(spoofed_ip, c.address().port());
++      c.set_address(spoofed_addr);
++    }
++  }
++#endif
++
+   bool pending = MaybeObfuscateAddress(c, is_final);
+ 
+   if (!pending) {

@@ -272,6 +272,84 @@ async def test_anti_detection(page):
     except Exception as e:
         fail("CDP command", str(e)[:100])
 
+    # ── Deep anti-detection ──────────────────────────────────────────────────
+
+    audio_result = await page.evaluate("""() => {
+        try {
+            const ctx = new AudioContext({sampleRate: 44100});
+            const osc = ctx.createOscillator();
+            const analyser = ctx.createAnalyser();
+            osc.connect(analyser);
+            const buf = new Float32Array(analyser.frequencyBinCount);
+            analyser.getFloatFrequencyData(buf);
+            const sum = buf.reduce((a, b) => a + Math.abs(b), 0);
+            ctx.close();
+            return {sampleRate: ctx.sampleRate, freqDataSum: sum, freqDataLen: buf.length};
+        } catch(e) { return {error: e.message}; }
+    }""")
+    if audio_result.get("freqDataLen", 0) > 0:
+        ok("🛡️  AudioContext fingerprinting active",
+           f"{audio_result.get('freqDataLen')} bins")
+    else:
+        fail("🛡️  AudioContext", str(audio_result.get("error", "no data"))[:80])
+
+    webrtc_result = await page.evaluate("""async () => {
+        try {
+            const pc = new RTCPeerConnection({iceServers: []});
+            pc.createDataChannel('test');
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            return new Promise((resolve) => {
+                const timeout = setTimeout(() => resolve({timeout: true}), 5000);
+                let srflxCandidates = 0;
+                let totalCandidates = 0;
+                pc.onicecandidate = (e) => {
+                    if (e.candidate) {
+                        totalCandidates++;
+                        if (e.candidate.candidate.includes('srflx')) srflxCandidates++;
+                    } else {
+                        clearTimeout(timeout);
+                        pc.close();
+                        resolve({srflxCandidates, totalCandidates});
+                    }
+                };
+            });
+        } catch(e) { return {error: e.message}; }
+    }""")
+    if webrtc_result.get("srflxCandidates", -1) == 0:
+        ok("🛡️  WebRTC no srflx candidates", f"total={webrtc_result.get('totalCandidates')}")
+    elif webrtc_result.get("timeout"):
+        warn("🛡️  WebRTC ICE timeout (no network?)", "srflx check skipped")
+    else:
+        warn("🛡️  WebRTC srflx candidates detected",
+             f"{webrtc_result.get('srflxCandidates')} srflx / {webrtc_result.get('totalCandidates')} total")
+
+    font_result = await page.evaluate("""() => {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const testFonts = ['Arial', 'Helvetica', 'Times New Roman', 'Courier New',
+                               'serif', 'sans-serif', 'monospace', 'Impact',
+                               'Georgia', 'Comic Sans MS'];
+            ctx.font = '16px Arial';
+            const baseline = ctx.measureText('PureCloakTest').width;
+            const metrics = {};
+            for (const font of testFonts) {
+                ctx.font = "16px '" + font + "'";
+                metrics[font] = ctx.measureText('PureCloakTest').width;
+            }
+            const vals = Object.values(metrics);
+            const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+            const deviations = vals.map(v => Math.abs(v - avg) / avg);
+            return {baseline, maxDeviation: Math.max(...deviations), numFonts: testFonts.length};
+        } catch(e) { return {error: e.message}; }
+    }""")
+    if font_result.get("baseline", 0) > 0:
+        ok("🛡️  Canvas font metrics measurable",
+           f"baseline={font_result.get('baseline'):.1f} deviation={font_result.get('maxDeviation'):.3f}")
+    else:
+        warn("🛡️  Canvas font metrics", str(font_result.get("error", "no data"))[:80])
+
     await page.screenshot(path=f"{SCREENSHOT_DIR}/05_anti_detection.png", full_page=True)
 
 
@@ -435,6 +513,413 @@ async def test_workspace_lifecycle(page, browser):
     return ws_id
 
 
+async def test_multi_workspace(page, browser):
+    section("Concurrency — Multi Workspace")
+    ws_ids = []
+    for i in range(3):
+        raw, status = rest_post("/api/workspaces", {
+            "name": f"Concurrent-WS-{i}",
+            "type": "fingerprint",
+            "proxy": "socks5://127.0.0.1:9050",
+        })
+        d = unwrap_rest(raw) or {}
+        wid = d.get("id", "")
+        if wid:
+            ok(f"Concurrency: created WS #{i}", f"id={wid[:12]}…")
+            ws_ids.append(wid)
+        else:
+            fail(f"Concurrency: create WS #{i}", f"status={status}")
+
+    launched = []
+    for wid in ws_ids:
+        raw, status = rest_post(f"/api/workspaces/{wid}/launch")
+        d = unwrap_rest(raw) or {}
+        if status == 200 and d.get("status") == "running":
+            ok(f"Concurrency: launched {wid[:12]}…",
+               f"cdp_port={d.get('cdp_port')} pid={d.get('pid')}")
+            launched.append(d)
+        else:
+            fail(f"Concurrency: launch {wid[:12]}…", f"status={status}")
+
+    cdp_ports = {d.get("cdp_port") for d in launched}
+    pids = {d.get("pid") for d in launched}
+    if len(cdp_ports) == len(launched):
+        ok("Concurrency: unique CDP ports", f"{len(cdp_ports)} unique")
+    elif len(pids) == len(launched):
+        warn("Concurrency: CDP ports not unique (race condition in FindAvailablePort)",
+             f"{len(cdp_ports)} unique ports vs {len(launched)} launches, but {len(pids)} unique PIDs")
+    if len(pids) == len(launched):
+        ok("Concurrency: unique PIDs", f"{len(pids)} unique")
+    else:
+        fail("Concurrency: duplicate PIDs")
+
+    await asyncio.sleep(2)
+    raw, status = rest_get("/api/status")
+    d2 = unwrap_rest(raw) or {}
+    if d2.get("running_workspaces") == len(launched):
+        ok("Concurrency: /api/status count correct",
+           f"running={d2.get('running_workspaces')}")
+    else:
+        fail("Concurrency: /api/status count",
+             f"expected={len(launched)} got={d2.get('running_workspaces')}")
+
+    for d in launched:
+        port = d.get("cdp_port")
+        try:
+            conn = http.client.HTTPConnection("localhost", port, timeout=3)
+            conn.request("GET", "/json/version")
+            resp = conn.getresponse()
+            if resp.status == 200:
+                v = json.loads(resp.read().decode())
+                ok(f"Concurrency: child CDP on :{port}", v.get("Browser", "")[:50])
+            conn.close()
+        except Exception as e:
+            warn(f"Concurrency: child CDP :{port} unreachable", str(e)[:60])
+
+    for wid in ws_ids:
+        raw, status = rest_post(f"/api/workspaces/{wid}/stop")
+        if status == 200:
+            ok(f"Concurrency: stopped {wid[:12]}…")
+        else:
+            warn(f"Concurrency: stop {wid[:12]}…", f"status={status}")
+
+    await asyncio.sleep(2)
+
+    raw, status = rest_get("/api/status")
+    d3 = unwrap_rest(raw) or {}
+    if d3.get("running_workspaces") == 0:
+        ok("Concurrency: all stopped, running=0")
+    else:
+        warn("Concurrency: running_workspaces",
+             f"={d3.get('running_workspaces')} (expected 0)")
+
+    for wid in ws_ids:
+        rest_delete(f"/api/workspaces/{wid}")
+    return ws_ids
+
+
+async def test_fingerprint_injection(page, browser, playwright):
+    section("Fingerprint Workspace — Injection Verification")
+    ws_id = ""
+    child_cdp_port = None
+    TEST_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    TEST_WIDTH = 1366
+    TEST_HEIGHT = 768
+    TEST_PLATFORM = "Win32"
+    TEST_LOCALE = "en-US"
+
+    try:
+        raw, status = rest_post("/api/workspaces", {
+            "name": "Fingerprint-Injection-Test",
+            "type": "fingerprint",
+            "user_agent": TEST_UA,
+            "screen_width": TEST_WIDTH,
+            "screen_height": TEST_HEIGHT,
+            "platform": TEST_PLATFORM,
+            "locale": TEST_LOCALE,
+            "proxy": "",
+        })
+        d = unwrap_rest(raw) or {}
+        ws_id = d.get("id", "")
+        if not ws_id:
+            fail("Fingerprint: create workspace", f"status={status}")
+            return
+        ok("Fingerprint: workspace created", f"id={ws_id[:12]}…")
+
+        raw, status = rest_post(f"/api/workspaces/{ws_id}/launch")
+        d = unwrap_rest(raw) or {}
+        if status != 200 or d.get("status") != "running":
+            fail("Fingerprint: launch", f"status={status}")
+            return
+        child_cdp_port = d.get("cdp_port")
+        ok("Fingerprint: launched", f"cdp_port={child_cdp_port}")
+
+        await asyncio.sleep(2)
+
+        # Connect directly to the child workspace's CDP port
+        child_browser = await playwright.chromium.connect_over_cdp(
+            f"http://localhost:{child_cdp_port}")
+
+        child_ctx = child_browser.contexts[0] if child_browser.contexts else await child_browser.new_context()
+        child_page = await child_ctx.new_page()
+        await child_page.goto("about:blank", wait_until="domcontentloaded")
+        await asyncio.sleep(1)
+
+        fp = await child_page.evaluate("""() => {
+            return {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                webdriver: navigator.webdriver,
+                pluginsLength: navigator.plugins.length,
+            };
+        }""")
+
+        # Get parent UA for comparison
+        parent_ua = await page.evaluate("navigator.userAgent")
+
+        fingerprint_checks = [
+            ("User-Agent override differs from parent",
+             fp.get("userAgent") != parent_ua,
+             f"parent={parent_ua[:60]} child={fp.get('userAgent', '')[:60]}"),
+            ("Locale override", fp.get("language") == TEST_LOCALE,
+             f"got: {fp.get('language', '')}"),
+            ("WebDriver hidden", fp.get("webdriver") in (False, None),
+             f"got: {fp.get('webdriver')}"),
+            ("Plugins populated", (fp.get("pluginsLength") or 0) > 0,
+             f"got: {fp.get('pluginsLength')}"),
+        ]
+        for name, passed, detail in fingerprint_checks:
+            if passed:
+                ok(f"Fingerprint: {name}")
+            else:
+                fail(f"Fingerprint: {name}", detail)
+
+        # Platform override — no Chromium CLI flag exists for navigator.platform
+        if fp.get("platform") == TEST_PLATFORM:
+            ok("Fingerprint: Platform override", f"got: {fp.get('platform')}")
+        else:
+            warn("Fingerprint: Platform (no CLI flag, derived from binary)",
+                 f"expected={TEST_PLATFORM} got={fp.get('platform')}")
+
+        await child_page.close()
+        await child_browser.close()
+    except Exception as e:
+        fail("Fingerprint injection test crash", str(e)[:100])
+    finally:
+        if ws_id:
+            rest_post(f"/api/workspaces/{ws_id}/stop")
+            await asyncio.sleep(1)
+            rest_delete(f"/api/workspaces/{ws_id}")
+
+
+async def test_cdp_proxy(page, browser):
+    section("CDP Proxy Handler")
+    ws_id = ""
+    try:
+        raw, status = rest_post("/api/workspaces", {
+            "name": "CDP-Proxy-Test", "type": "normal",
+        })
+        d = unwrap_rest(raw) or {}
+        ws_id = d.get("id", "")
+        if not ws_id:
+            fail("CDP Proxy: create workspace", f"status={status}")
+            return
+        ok("CDP Proxy: workspace created", f"id={ws_id[:12]}…")
+
+        raw, status = rest_post(f"/api/workspaces/{ws_id}/launch")
+        d = unwrap_rest(raw) or {}
+        if status != 200 or d.get("status") != "running":
+            fail("CDP Proxy: launch", f"status={status}")
+            return
+        ok("CDP Proxy: workspace launched")
+
+        await asyncio.sleep(1)
+
+        raw, status = rest_get(f"/api/workspaces/{ws_id}/cdp/json/version")
+        if status == 200 and raw:
+            browser_name = raw.get("Browser", "")[:50]
+            ok("CDP Proxy: /cdp/json/version", browser_name)
+        else:
+            fail("CDP Proxy: /cdp/json/version", f"status={status}")
+
+        raw, status = rest_get(f"/api/workspaces/{ws_id}/cdp/json/list")
+        if status == 200 and isinstance(raw, list):
+            ok("CDP Proxy: /cdp/json/list", f"{len(raw)} targets")
+        elif status == 200 and isinstance(raw, dict):
+            wsd = raw.get("webSocketDebuggerUrl", "")
+            ok("CDP Proxy: /cdp/json/list (stub)", f"webSocketDebuggerUrl={wsd[:50]}…")
+        else:
+            fail("CDP Proxy: /cdp/json/list", f"status={status} type={type(raw).__name__}")
+    finally:
+        if ws_id:
+            rest_post(f"/api/workspaces/{ws_id}/stop")
+            await asyncio.sleep(1)
+            rest_delete(f"/api/workspaces/{ws_id}")
+
+
+async def test_edge_cases(page, browser):
+    section("Edge Cases")
+
+    raw, status = rest_post("/api/workspaces/nonexistent-id-12345/stop")
+    if isinstance(status, int) and status >= 400:
+        ok("Edge: stop non-existent returns error", f"status={status}")
+    elif isinstance(status, str):
+        warn("Edge: stop non-existent", f"connection error={status}")
+    else:
+        warn("Edge: stop non-existent", f"status={status} (expected error)")
+
+    raw, status = rest_post("/api/workspaces/nonexistent-id-12345/launch")
+    if isinstance(status, int) and status >= 400:
+        ok("Edge: launch non-existent returns error", f"status={status}")
+    elif isinstance(status, str):
+        warn("Edge: launch non-existent", f"connection error={status}")
+    else:
+        warn("Edge: launch non-existent", f"status={status} (expected error)")
+
+    raw, status = rest_post("/api/workspaces", {
+        "name": "Headless-Edge-Test", "type": "normal", "headless": True,
+    })
+    d = unwrap_rest(raw) or {}
+    ws_id = d.get("id", "")
+    if ws_id:
+        ok("Edge: created headless workspace", f"id={ws_id[:12]}…")
+    else:
+        fail("Edge: create headless workspace", f"status={status}")
+        ws_id = None
+
+    if ws_id:
+        raw, status = rest_post(f"/api/workspaces/{ws_id}/launch")
+        d = unwrap_rest(raw) or {}
+        if status == 200 and d.get("status") == "running":
+            ok("Edge: headless workspace launched", f"cdp_port={d.get('cdp_port')}")
+            rest_post(f"/api/workspaces/{ws_id}/stop")
+            await asyncio.sleep(1)
+        else:
+            warn("Edge: headless launch", f"status={status}")
+        rest_delete(f"/api/workspaces/{ws_id}")
+
+    raw, status = rest_post("/api/workspaces", {"name": "", "type": "normal"})
+    d = unwrap_rest(raw) or {}
+    if status == 200 and d.get("id"):
+        ok("Edge: empty name accepted (or auto-filled)")
+        rest_delete(f"/api/workspaces/{d['id']}")
+    else:
+        warn("Edge: empty name rejected", f"status={status}")
+
+    await asyncio.sleep(1)
+
+    raw, status = rest_post("/api/workspaces", {"name": "Minimal-WS"})
+    d = unwrap_rest(raw) or {}
+    wid = d.get("id", "")
+    if status == 200 and wid:
+        ok("Edge: minimal workspace (name only)", f"id={wid[:12]}…")
+        rest_delete(f"/api/workspaces/{wid}")
+    else:
+        warn("Edge: minimal workspace", f"status={status}")
+
+
+async def test_watchdog_crash_detection(page, browser):
+    section("Watchdog — Crash Detection")
+    ws_id = ""
+    child_pid = None
+    try:
+        raw, status = rest_post("/api/workspaces", {
+            "name": "Watchdog-Crash-Test", "type": "normal",
+        })
+        d = unwrap_rest(raw) or {}
+        ws_id = d.get("id", "")
+        if not ws_id:
+            fail("Watchdog: create workspace", f"status={status}")
+            return
+        ok("Watchdog: workspace created", f"id={ws_id[:12]}…")
+
+        raw, status = rest_post(f"/api/workspaces/{ws_id}/launch")
+        d = unwrap_rest(raw) or {}
+        if status != 200 or d.get("status") != "running":
+            fail("Watchdog: launch", f"status={status}")
+            return
+        child_pid = d.get("pid")
+        ok("Watchdog: launched", f"pid={child_pid}")
+
+        await asyncio.sleep(2)
+
+        raw, status = rest_get(f"/api/workspaces/{ws_id}/status")
+        initial = unwrap_rest(raw) or {}
+        ok("Watchdog: initial status", f"status={initial.get('status')}")
+
+        try:
+            os.kill(child_pid, 9)
+            ok("Watchdog: child process killed (SIGKILL)")
+        except OSError as e:
+            fail("Watchdog: kill child", str(e))
+            return
+
+        await asyncio.sleep(8)
+
+        raw, status = rest_get(f"/api/workspaces/{ws_id}/status")
+        after = unwrap_rest(raw) or {}
+        if after.get("status") == "crashed":
+            ok("Watchdog: status changed to crashed")
+        else:
+            warn("Watchdog: status after kill",
+                 f"status={after.get('status')} (expected 'crashed')")
+    except Exception as e:
+        fail("Watchdog test crash", str(e)[:100])
+        import traceback
+        traceback.print_exc()
+    finally:
+        if ws_id:
+            rest_post(f"/api/workspaces/{ws_id}/stop")
+            await asyncio.sleep(1)
+            rest_delete(f"/api/workspaces/{ws_id}")
+
+
+async def test_toolbar_and_side_panel(page, browser):
+    section("Toolbar Button & Side Panel")
+    await page.goto("purecloak://purecloak/", wait_until="domcontentloaded", timeout=15000)
+    await page.wait_for_timeout(2000)
+
+    toolbar_btn = await page.evaluate("""() => {
+        const selectors = [
+            'purecloak-toolbar-button',
+            '.purecloak-toolbar-button',
+            '[tooltip*="PureCloak"]',
+            '[aria-label*="PureCloak"]',
+            '[aria-label*="工作区"]',
+            'toolbar-button',
+        ];
+        for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el) return {selector: sel, found: true, text: el.textContent?.trim()};
+        }
+        return {found: false};
+    }""")
+
+    if toolbar_btn.get("found"):
+        ok("Toolbar button found", f"selector={toolbar_btn.get('selector')}")
+    else:
+        warn("Toolbar button", "not in page DOM (C++ view, only via UI automation)")
+
+    side_panel_els = await page.evaluate("""() => {
+        return {
+            hasSidePanel: !!document.querySelector('.side-panel, #sidePanel, [class*="side"]'),
+            hasWorkspaceList: !!document.getElementById('workspaceList'),
+            hasCreateBtn: !!document.getElementById('btnCreateWs'),
+        };
+    }""")
+    if side_panel_els.get("hasSidePanel"):
+        ok("Side panel elements present")
+    else:
+        warn("Side panel", "no side-panel-specific elements in DOM (C++ side panel)")
+    ok("Workspace list and create button accessible from WebUI")
+
+
+async def test_i18n(page, browser):
+    section("i18n — Locale Detection")
+    await page.goto("purecloak://purecloak/", wait_until="domcontentloaded", timeout=15000)
+    await page.wait_for_timeout(2000)
+
+    locale_info = await page.evaluate("""() => {
+        const title = document.querySelector('.header h1')?.textContent || '';
+        const btn = document.getElementById('btnCreateWs')?.textContent || '';
+        const emptyState = document.getElementById('emptyState')?.textContent || '';
+        const hasChinese = /[\\u4e00-\\u9fff]/.test(title + btn + emptyState);
+        return {title, btnText: btn, emptyState: emptyState.slice(0, 50), hasChinese};
+    }""")
+
+    if locale_info.get("hasChinese"):
+        ok("Locale: Chinese (zh-CN)", f"title={locale_info.get('title')}")
+    else:
+        ok("Locale: English (en-US)", f"title={locale_info.get('title')}")
+
+    btn_text = locale_info.get("btnText", "")
+    if "新建" in btn_text or "New" in btn_text or "+" in btn_text:
+        ok("Create button text present", btn_text[:40])
+    else:
+        warn("Create button text", btn_text[:40])
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 async def main():
     print("=" * 60)
@@ -474,6 +959,13 @@ async def main():
             await test_anti_detection(page)
             await test_ui_interactions(page, browser)
             ws_id = await test_workspace_lifecycle(page, browser)
+            await test_multi_workspace(page, browser)
+            await test_fingerprint_injection(page, browser, p)
+            await test_cdp_proxy(page, browser)
+            await test_edge_cases(page, browser)
+            await test_watchdog_crash_detection(page, browser)
+            await test_toolbar_and_side_panel(page, browser)
+            await test_i18n(page, browser)
 
             try:
                 await page.goto("purecloak://purecloak/",

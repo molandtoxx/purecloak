@@ -19,6 +19,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "net/http/http_status_code.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "net/server/http_server.h"
 #include "net/server/http_server_request_info.h"
 #include "purecloak/browser/api/cdp_proxy_handler.h"
@@ -29,6 +30,19 @@
 namespace purecloak {
 
 namespace {
+
+constexpr net::NetworkTrafficAnnotationTag kApiTrafficAnnotation =
+    net::DefineNetworkTrafficAnnotation("purecloak_api_handler", R"(
+      semantics {
+        sender: "PureCloak API Handler"
+        description: "HTTP responses for PureCloak workspace management API"
+        trigger: "Request to PureCloak API server"
+        data: "Workspace configuration and status data"
+        destination: LOCAL
+      }
+      policy {
+        cookies_allowed: NO
+      })");
 
 // Parse path segments from a request path.
 // e.g. "/api/workspaces/abc/launch" → {"api", "workspaces", "abc", "launch"}
@@ -45,15 +59,62 @@ std::vector<std::string> ParsePath(const std::string& path) {
 }
 
 // Parse JSON body from a request. Returns empty dict on failure.
-base::Value::Dict ParseJsonBody(const std::string& body) {
+base::DictValue ParseJsonBody(const std::string& body) {
   if (body.empty()) {
-    return base::Value::Dict();
+    return base::DictValue();
   }
-  auto parsed = base::JSONReader::Read(body);
-  if (!parsed || !parsed->is_dict()) {
-    return base::Value::Dict();
+  auto parsed = base::JSONReader::ReadDict(body, 0);
+  if (!parsed) {
+    return base::DictValue();
   }
-  return std::move(parsed->GetDict());
+  return std::move(*parsed);
+}
+
+// Apply optional workspace fields from a JSON body dict to a Workspace.
+// Uses the same field-name constants as Workspace::FromDict.
+void ApplyBodyToWorkspace(Workspace& ws, const base::DictValue& body) {
+  if (const std::string* v = body.FindString("name"))
+    ws.name = *v;
+  if (const std::string* v = body.FindString("user_agent"))
+    ws.user_agent = *v;
+  if (std::optional<int> v = body.FindInt("screen_width"))
+    ws.screen_width = *v;
+  if (std::optional<int> v = body.FindInt("screen_height"))
+    ws.screen_height = *v;
+  if (const std::string* v = body.FindString("gpu_vendor"))
+    ws.gpu_vendor = *v;
+  if (const std::string* v = body.FindString("gpu_renderer"))
+    ws.gpu_renderer = *v;
+  if (std::optional<int> v = body.FindInt("hardware_concurrency"))
+    ws.hardware_concurrency = *v;
+  if (const std::string* v = body.FindString("platform"))
+    ws.platform = *v;
+  if (const std::string* v = body.FindString("color_scheme"))
+    ws.color_scheme = *v;
+  if (const std::string* v = body.FindString("proxy"))
+    ws.proxy = *v;
+  if (const std::string* v = body.FindString("timezone"))
+    ws.timezone = *v;
+  if (const std::string* v = body.FindString("locale"))
+    ws.locale = *v;
+  if (std::optional<bool> v = body.FindBool("geoip"))
+    ws.geoip = *v;
+  if (const std::string* v = body.FindString("default_tab_title"))
+    ws.default_tab_title = *v;
+  if (const std::string* v = body.FindString("notes"))
+    ws.notes = *v;
+  if (std::optional<bool> v = body.FindBool("humanize"))
+    ws.humanize = *v;
+  if (const std::string* v = body.FindString("human_preset"))
+    ws.human_preset = *v;
+  if (std::optional<bool> v = body.FindBool("headless"))
+    ws.headless = *v;
+  if (std::optional<bool> v = body.FindBool("clipboard_sync"))
+    ws.clipboard_sync = *v;
+  if (std::optional<bool> v = body.FindBool("auto_launch"))
+    ws.auto_launch = *v;
+  if (std::optional<int> v = body.FindInt("color"))
+    ws.color = static_cast<uint32_t>(*v);
 }
 
 }  // namespace
@@ -93,7 +154,8 @@ void WorkspaceApiHandler::OnWebSocketRequest(
     if (segments[3] == "cdp") {
       // Accept the upgrade so we can relay.
       if (server_) {
-        server_->AcceptWebSocket(connection_id, info);
+        server_->AcceptWebSocket(connection_id, info,
+                                  kApiTrafficAnnotation);
       }
       std::string subpath;
       for (size_t i = 4; i < segments.size(); ++i) {
@@ -216,19 +278,20 @@ void WorkspaceApiHandler::SendJson(int connection_id,
   }
   std::string json;
   base::JSONWriter::Write(response, &json);
-  server_->SendResponse(connection_id, status, json,
-                         "application/json; charset=UTF-8");
+  server_->Send(connection_id, status, json,
+                "application/json; charset=UTF-8",
+                kApiTrafficAnnotation);
 }
 
 void WorkspaceApiHandler::SendError(int connection_id,
                                      net::HttpStatusCode status,
                                      const std::string& code,
                                      const std::string& message) {
-  base::Value::Dict error_detail;
+  base::DictValue error_detail;
   error_detail.Set("code", code);
   error_detail.Set("message", message);
 
-  base::Value::Dict error;
+  base::DictValue error;
   error.Set("success", false);
   error.Set("error", std::move(error_detail));
 
@@ -238,7 +301,7 @@ void WorkspaceApiHandler::SendError(int connection_id,
 void WorkspaceApiHandler::SendSuccess(int connection_id,
                                        base::Value data,
                                        net::HttpStatusCode status) {
-  base::Value::Dict response;
+  base::DictValue response;
   response.Set("success", true);
   if (data.is_dict()) {
     // Merge the data dict into the response
@@ -253,13 +316,13 @@ void WorkspaceApiHandler::SendSuccess(int connection_id,
 
 void WorkspaceApiHandler::RespondWithWorkspaceList(
     int connection_id,
-    std::vector<base::Value::Dict> workspaces) {
+    std::vector<base::DictValue> workspaces) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
-  base::Value::List list;
+  base::ListValue list;
   for (auto& ws : workspaces) {
     list.Append(std::move(ws));
   }
-  base::Value::Dict result;
+  base::DictValue result;
   result.Set("success", true);
   result.Set("data", std::move(list));
   SendJson(connection_id, net::HTTP_OK, base::Value(std::move(result)));
@@ -267,14 +330,14 @@ void WorkspaceApiHandler::RespondWithWorkspaceList(
 
 void WorkspaceApiHandler::RespondWithWorkspace(
     int connection_id,
-    std::optional<base::Value::Dict> ws) {
+    std::optional<base::DictValue> ws) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   if (!ws.has_value()) {
     SendError(connection_id, net::HTTP_NOT_FOUND, "NOT_FOUND",
               "Workspace not found");
     return;
   }
-  base::Value::Dict result;
+  base::DictValue result;
   result.Set("success", true);
   result.Set("data", std::move(*ws));
   SendJson(connection_id, net::HTTP_OK, base::Value(std::move(result)));
@@ -282,7 +345,7 @@ void WorkspaceApiHandler::RespondWithWorkspace(
 
 void WorkspaceApiHandler::RespondWithStatus(int connection_id,
                                              bool success,
-                                             base::Value::Dict data) {
+                                             base::DictValue data) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
   data.Set("success", success);
   SendJson(connection_id, success ? net::HTTP_OK : net::HTTP_BAD_REQUEST,
@@ -303,7 +366,7 @@ void WorkspaceApiHandler::HandleGetAllWorkspaces(int connection_id) {
              scoped_refptr<base::SequencedTaskRunner> api_runner,
              base::WeakPtr<WorkspaceApiHandler> weak_this) {
             auto workspaces = store->GetAllWorkspaces();
-            std::vector<base::Value::Dict> dicts;
+            std::vector<base::DictValue> dicts;
             for (const auto& ws : workspaces) {
               dicts.push_back(ws.ToDict());
             }
@@ -318,7 +381,7 @@ void WorkspaceApiHandler::HandleGetAllWorkspaces(int connection_id) {
 
 void WorkspaceApiHandler::HandleCreateWorkspace(
     int connection_id,
-    base::Value::Dict body) {
+    base::DictValue body) {
   // Validate required fields
   std::string* name = body.FindString("name");
   if (!name || name->empty()) {
@@ -337,25 +400,26 @@ void WorkspaceApiHandler::HandleCreateWorkspace(
   content::GetUIThreadTaskRunner({})->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](WorkspaceStore* store, std::string name, Workspace::Type type,
-             int connection_id,
-             scoped_refptr<base::SequencedTaskRunner> api_runner,
-             base::WeakPtr<WorkspaceApiHandler> weak_this) {
-            auto ws = Workspace::CreateBasic(name, type);
+           [](WorkspaceStore* store, std::string name, Workspace::Type type,
+              base::DictValue body,
+              int connection_id,
+              scoped_refptr<base::SequencedTaskRunner> api_runner,
+              base::WeakPtr<WorkspaceApiHandler> weak_this) {
+             auto ws = Workspace::CreateBasic(name, type);
 
-            // Apply optional overrides from body
-            // (other fields can be applied via subsequent PUT)
+             // Apply optional overrides from body
+             ApplyBodyToWorkspace(ws, body);
 
-            ws = store->CreateWorkspace(std::move(ws));
+             ws = store->CreateWorkspace(std::move(ws));
 
-            auto ws_dict = ws.ToDict();
-            api_runner->PostTask(
-                FROM_HERE,
-                base::BindOnce(&WorkspaceApiHandler::RespondWithWorkspace,
-                               weak_this, connection_id, std::move(ws_dict)));
-          },
-          base::Unretained(workspace_store_), *name, type, connection_id,
-          std::move(api_runner), std::move(weak_this)));
+             auto ws_dict = ws.ToDict();
+             api_runner->PostTask(
+                 FROM_HERE,
+                 base::BindOnce(&WorkspaceApiHandler::RespondWithWorkspace,
+                                weak_this, connection_id, std::move(ws_dict)));
+           },
+           base::Unretained(workspace_store_), *name, type, std::move(body),
+           connection_id, std::move(api_runner), std::move(weak_this)));
 }
 
 void WorkspaceApiHandler::HandleGetWorkspace(int connection_id,
@@ -370,7 +434,7 @@ void WorkspaceApiHandler::HandleGetWorkspace(int connection_id,
              scoped_refptr<base::SequencedTaskRunner> api_runner,
              base::WeakPtr<WorkspaceApiHandler> weak_this) {
             auto ws = store->GetWorkspace(ws_id);
-            std::optional<base::Value::Dict> result;
+            std::optional<base::DictValue> result;
             if (ws.has_value()) {
               result = ws->ToDict();
             }
@@ -386,7 +450,7 @@ void WorkspaceApiHandler::HandleGetWorkspace(int connection_id,
 void WorkspaceApiHandler::HandleUpdateWorkspace(
     int connection_id,
     const std::string& ws_id,
-    base::Value::Dict body) {
+    base::DictValue body) {
   auto api_runner = base::SequencedTaskRunner::GetCurrentDefault();
   auto weak_this = weak_factory_.GetWeakPtr();
 
@@ -394,7 +458,7 @@ void WorkspaceApiHandler::HandleUpdateWorkspace(
       FROM_HERE,
       base::BindOnce(
           [](WorkspaceStore* store, std::string ws_id,
-             base::Value::Dict body, int connection_id,
+             base::DictValue body, int connection_id,
              scoped_refptr<base::SequencedTaskRunner> api_runner,
              base::WeakPtr<WorkspaceApiHandler> weak_this) {
             // Get existing workspace
@@ -410,13 +474,11 @@ void WorkspaceApiHandler::HandleUpdateWorkspace(
             Workspace ws = std::move(*existing);
 
             // Apply updates from body
-            if (std::string* v = body.FindString("name")) {
-              ws.name = *v;
-            }
+            ApplyBodyToWorkspace(ws, body);
 
             // Apply full-field update
             bool success = store->UpdateWorkspace(ws);
-            std::optional<base::Value::Dict> result;
+            std::optional<base::DictValue> result;
             if (success) {
               result = ws.ToDict();
             }
@@ -446,7 +508,7 @@ void WorkspaceApiHandler::HandleDeleteWorkspace(
                 FROM_HERE,
                 base::BindOnce(&WorkspaceApiHandler::RespondWithStatus,
                                weak_this, connection_id, success,
-                               base::Value::Dict()));
+                               base::DictValue()));
           },
           base::Unretained(workspace_store_), ws_id, connection_id,
           std::move(api_runner), std::move(weak_this)));
@@ -471,7 +533,7 @@ void WorkspaceApiHandler::HandleLaunchWorkspace(
                   FROM_HERE,
                   base::BindOnce(&WorkspaceApiHandler::RespondWithStatus,
                                  weak_this, connection_id, false,
-                                 base::Value::Dict()));
+                                 base::DictValue()));
               return;
             }
 
@@ -487,7 +549,7 @@ void WorkspaceApiHandler::HandleLaunchWorkspace(
                           base::BindOnce(
                               &WorkspaceApiHandler::RespondWithStatus,
                               weak_this, connection_id, success,
-                              result.Clone().TakeDict()));
+                               result.Clone()));
                     },
                     connection_id, api_runner, weak_this));
           },
@@ -510,7 +572,7 @@ void WorkspaceApiHandler::HandleStopWorkspace(
              scoped_refptr<base::SequencedTaskRunner> api_runner,
              base::WeakPtr<WorkspaceApiHandler> weak_this) {
             manager->Stop(ws_id);
-            base::Value::Dict result;
+            base::DictValue result;
             result.Set("workspace_id", ws_id);
             result.Set("status", "stopped");
             api_runner->PostTask(
@@ -541,14 +603,14 @@ void WorkspaceApiHandler::HandleGetWorkspaceStatus(
                 FROM_HERE,
                 base::BindOnce(&WorkspaceApiHandler::RespondWithStatus,
                                weak_this, connection_id, true,
-                               std::move(status.TakeDict())));
+                                std::move(status)));
               },
           base::Unretained(workspace_manager_), ws_id, connection_id,
           std::move(api_runner), std::move(weak_this)));
 }
 
 void WorkspaceApiHandler::HandleSystemStatus(int connection_id) {
-  base::Value::Dict result;
+  base::DictValue result;
   result.Set("status", "running");
   result.Set("version", "1.0.0");
 
@@ -565,7 +627,7 @@ void WorkspaceApiHandler::HandleSystemStatus(int connection_id) {
             size_t count = manager->RunningCount();
             size_t total = manager->GetAll().size();
 
-            base::Value::Dict data;
+            base::DictValue data;
             data.Set("status", "running");
             data.Set("version", "1.0.0");
             data.Set("running_workspaces", static_cast<int>(count));
@@ -639,7 +701,7 @@ void WorkspaceApiHandler::HandleCDPRequest(
                       if (weak_this) {
                         // Stub: For now return the CDP URL so the client
                         // can connect directly.
-                        base::Value::Dict result;
+                        base::DictValue result;
                         result.Set("webSocketDebuggerUrl",
                                     target_url);
                         weak_this->RespondWithStatus(

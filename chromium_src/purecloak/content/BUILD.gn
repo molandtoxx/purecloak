@@ -8,6 +8,8 @@ source_set("content") {
   sources = [
     "anti_detection/anti_detection_engine.cc",
     "anti_detection/anti_detection_engine.h",
+    "anti_detection/humanize_engine.cc",
+    "anti_detection/humanize_engine.h",
     "cdp_websocket_client.cc",
     "cdp_websocket_client.h",
     "profile_cdp_injector.cc",

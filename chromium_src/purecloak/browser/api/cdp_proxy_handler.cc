@@ -9,6 +9,7 @@
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/strings/string_number_conversions.h"
+#include "net/base/io_buffer.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/sequenced_task_runner.h"
 #include "content/public/browser/browser_task_traits.h"
@@ -17,9 +18,10 @@
 #include "net/base/ip_endpoint.h"
 #include "net/server/http_server.h"
 #include "net/server/http_server_request_info.h"
+#include "net/log/net_log_source.h"
+#include "net/socket/socket_performance_watcher.h"
 #include "net/socket/tcp_client_socket.h"
-#include "net/socket/stream_socket.h"
-#include "net/traffic_annotation/network_traffic_annotation.h"
+#include "net/socket/transport_client_socket.h"
 #include "purecloak/browser/workspace_launcher.h"
 
 namespace purecloak {
@@ -147,18 +149,18 @@ void CDPProxyHandler::DestroySession(int connection_id) {
 
 // --- Target Connection ---
 
-void CDPProxyHandler::ConnectToTarget(ProxySession* session,
+void CDPProxyHandler::ConnectToTarget(int connection_id,
                                        const std::string& host,
                                        int port) {
-  // If session was destroyed while we were looking up the port, bail out.
-  // (this is handled by checking if session still exists)
-  DCHECK_CALLED_ON_VALID_SEQUENCE(
-      // We're on the API thread, no sequence checker for the handler itself
-  );
+  auto* session = GetSession(connection_id);
+  if (!session) {
+    return;
+  }
 
   auto socket = std::make_unique<net::TCPClientSocket>(
       net::AddressList(net::IPEndPoint(net::IPAddress::IPv4Localhost(), port)),
-      nullptr, nullptr, nullptr, kCdpProxyTrafficAnnotation);
+      std::unique_ptr<net::SocketPerformanceWatcher>(),
+      nullptr, nullptr, net::NetLogSource());
 
   // Store the socket and connect.
   session->target_socket = std::move(socket);
@@ -211,15 +213,18 @@ void CDPProxyHandler::SendHandshake(ProxySession* session) {
   auto write_buffer = base::MakeRefCounted<net::DrainableIOBuffer>(
       base::MakeRefCounted<net::StringIOBuffer>(handshake), handshake.size());
 
-  // TODO: Implement proper async write. For now, use a simplified write.
+  // Keep the write buffer alive through the async completion callback.
   int write_result = session->target_socket->Write(
       write_buffer.get(), write_buffer->BytesRemaining(),
-      base::BindOnce([](int result) {
-        if (result < 0) {
-          LOG(ERROR) << "Failed to send WebSocket handshake: "
-                     << net::ErrorToString(result);
-        }
-      }));
+      base::BindOnce(
+          [](scoped_refptr<net::DrainableIOBuffer> buf, int result) {
+            if (result < 0) {
+              LOG(ERROR) << "Failed to send WebSocket handshake: "
+                         << net::ErrorToString(result);
+            }
+          },
+          write_buffer),
+      kCdpProxyTrafficAnnotation);
 
   if (write_result < 0 && write_result != net::ERR_IO_PENDING) {
     LOG(ERROR) << "Write failed for handshake: "
@@ -233,11 +238,12 @@ void CDPProxyHandler::SendHandshake(ProxySession* session) {
 }
 
 void CDPProxyHandler::StartTargetRead(ProxySession* session) {
-  auto* buffer_data = session->read_buffer.data();
-  auto buffer_size = session->read_buffer.size();
+  auto io_buffer = base::MakeRefCounted<net::WrappedIOBuffer>(
+      base::span(session->read_buffer));
+  auto buffer_size = static_cast<int>(session->read_buffer.size());
 
   int read_result = session->target_socket->Read(
-      buffer_data, buffer_size,
+      io_buffer.get(), buffer_size,
       base::BindOnce(&CDPProxyHandler::OnTargetRead,
                      weak_factory_.GetWeakPtr(),
                      session->client_connection_id));
@@ -308,7 +314,8 @@ void CDPProxyHandler::ForwardToClient(int connection_id,
     LOG(ERROR) << "ForwardToClient: server_ is null";
     return;
   }
-  server_->SendOverWebSocket(connection_id, data);
+  server_->SendOverWebSocket(connection_id, data,
+                              kCdpProxyTrafficAnnotation);
   // Continue reading from target.
   auto* session = GetSession(connection_id);
   if (session) {
@@ -340,7 +347,8 @@ void CDPProxyHandler::ForwardToTarget(int connection_id,
                          << connection_id << ": " << net::ErrorToString(result);
             }
           },
-          connection_id));
+          connection_id),
+      kCdpProxyTrafficAnnotation);
 
   if (write_result < 0 && write_result != net::ERR_IO_PENDING) {
     LOG(ERROR) << "Target write failed: " << net::ErrorToString(write_result);

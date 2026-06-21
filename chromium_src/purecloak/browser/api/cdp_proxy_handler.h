@@ -13,13 +13,7 @@
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
-
-namespace net {
-class HttpServer;
-class HttpServerRequestInfo;
-class StreamSocket;
-class TCPClientSocket;
-}  // namespace net
+#include "net/server/http_server.h"
 
 namespace purecloak {
 
@@ -75,7 +69,7 @@ class CDPProxyHandler {
   void DestroySession(int connection_id);
 
   // Connect to the workspace's CDP port.
-  void ConnectToTarget(ProxySession* session, const std::string& host,
+  void ConnectToTarget(int connection_id, const std::string& host,
                        int port);
 
   // Send WebSocket upgrade handshake to the CDP target.
@@ -85,10 +79,10 @@ class CDPProxyHandler {
   void StartTargetRead(ProxySession* session);
 
   // Called when data is read from the target.
-  void OnTargetRead(ProxySession* session, int result);
+  void OnTargetRead(int connection_id, int result);
 
   // Called when the target connection completes.
-  void OnTargetConnected(ProxySession* session, int result);
+  void OnTargetConnected(int connection_id, int result);
 
   // Forward data from target to client over the established WebSocket.
   void ForwardToClient(int connection_id, const std::string& data);

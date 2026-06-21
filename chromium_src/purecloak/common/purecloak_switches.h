@@ -11,6 +11,9 @@ namespace switches {
 // Port for the PureCloak REST API server. Default: 9334.
 extern const char kPureCloakApiPort[];
 
+// Bearer token for REST API authentication. Empty = no auth.
+extern const char kPureCloakApiToken[];
+
 // Fingerprint seed value. Use --fingerprint=0 to auto-generate per workspace.
 extern const char kFingerprint[];
 

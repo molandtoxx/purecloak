@@ -607,6 +607,9 @@ async def test_fingerprint_injection(page, browser, playwright):
     TEST_HEIGHT = 768
     TEST_PLATFORM = "Win32"
     TEST_LOCALE = "en-US"
+    TEST_HW_CONCURRENCY = 4
+    TEST_TZ = "America/New_York"
+    TEST_SCHEME = "dark"
 
     try:
         raw, status = rest_post("/api/workspaces", {
@@ -615,8 +618,11 @@ async def test_fingerprint_injection(page, browser, playwright):
             "user_agent": TEST_UA,
             "screen_width": TEST_WIDTH,
             "screen_height": TEST_HEIGHT,
+            "hardware_concurrency": TEST_HW_CONCURRENCY,
             "platform": TEST_PLATFORM,
             "locale": TEST_LOCALE,
+            "timezone": TEST_TZ,
+            "color_scheme": TEST_SCHEME,
             "proxy": "",
         })
         d = unwrap_rest(raw) or {}
@@ -646,12 +652,27 @@ async def test_fingerprint_injection(page, browser, playwright):
         await asyncio.sleep(1)
 
         fp = await child_page.evaluate("""() => {
+            const tz = (() => {
+                try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+                catch(e) { return 'error'; }
+            })();
+            const colorScheme = (() => {
+                try { return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+                catch(e) { return 'error'; }
+            })();
             return {
                 userAgent: navigator.userAgent,
                 platform: navigator.platform,
                 language: navigator.language,
                 webdriver: navigator.webdriver,
                 pluginsLength: navigator.plugins.length,
+                hardwareConcurrency: navigator.hardwareConcurrency,
+                screenWidth: screen.width,
+                screenHeight: screen.height,
+                screenAvailWidth: screen.availWidth,
+                screenAvailHeight: screen.availHeight,
+                timezone: tz,
+                colorScheme: colorScheme,
             };
         }""")
 
@@ -675,7 +696,34 @@ async def test_fingerprint_injection(page, browser, playwright):
             else:
                 fail(f"Fingerprint: {name}", detail)
 
-        # Platform override — no Chromium CLI flag exists for navigator.platform
+        # Phase 0 protector verifications
+        hw_checks = [
+            ("HardwareConcurrency override",
+             fp.get("hardwareConcurrency") == TEST_HW_CONCURRENCY,
+             f"got: {fp.get('hardwareConcurrency')}"),
+            ("Screen width override",
+             fp.get("screenWidth") == TEST_WIDTH,
+             f"got: {fp.get('screenWidth')}"),
+            ("Screen height override",
+             fp.get("screenHeight") == TEST_HEIGHT,
+             f"got: {fp.get('screenHeight')}"),
+            ("Screen availWidth override",
+             fp.get("screenAvailWidth") == TEST_WIDTH,
+             f"got: {fp.get('screenAvailWidth')}"),
+            ("Timezone override",
+             fp.get("timezone") == TEST_TZ,
+             f"got: {fp.get('timezone')}"),
+            ("Color scheme override",
+             fp.get("colorScheme") == TEST_SCHEME,
+             f"got: {fp.get('colorScheme')}"),
+        ]
+        for name, passed, detail in hw_checks:
+            if passed:
+                ok(f"Fingerprint: {name}")
+            else:
+                fail(f"Fingerprint: {name}", detail)
+
+        # Platform override — JS injection should work
         if fp.get("platform") == TEST_PLATFORM:
             ok("Fingerprint: Platform override", f"got: {fp.get('platform')}")
         else:

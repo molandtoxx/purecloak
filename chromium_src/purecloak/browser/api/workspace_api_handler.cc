@@ -4,6 +4,10 @@
 
 #include "purecloak/browser/api/workspace_api_handler.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <string_view>
 #include <utility>
 
@@ -121,9 +125,11 @@ void ApplyBodyToWorkspace(Workspace& ws, const base::DictValue& body) {
 
 WorkspaceApiHandler::WorkspaceApiHandler(
     WorkspaceStore* store,
-    RunningWorkspaceManager* manager)
+    RunningWorkspaceManager* manager,
+    const std::string& api_token)
     : workspace_store_(store),
       workspace_manager_(manager),
+      api_token_(api_token),
       cdp_proxy_(std::make_unique<CDPProxyHandler>(manager)) {
   DCHECK(workspace_store_);
   DCHECK(workspace_manager_);
@@ -187,6 +193,23 @@ void WorkspaceApiHandler::OnClose(int connection_id) {
 void WorkspaceApiHandler::DispatchRequest(
     int connection_id,
     const net::HttpServerRequestInfo& info) {
+  // Bearer token authentication check.
+  if (!api_token_.empty()) {
+    bool auth_ok = false;
+    auto auth_it = info.headers.find("Authorization");
+    if (auth_it != info.headers.end()) {
+      std::string expected = "Bearer " + api_token_;
+      if (auth_it->second == expected) {
+        auth_ok = true;
+      }
+    }
+    if (!auth_ok) {
+      SendError(connection_id, net::HTTP_UNAUTHORIZED, "UNAUTHORIZED",
+                "Missing or invalid Authorization: Bearer token");
+      return;
+    }
+  }
+
   auto segments = ParsePath(info.path);
 
   if (segments.empty()) {
@@ -248,6 +271,18 @@ void WorkspaceApiHandler::DispatchRequest(
       if (segments.size() == 4 && segments[3] == "status" &&
           info.method == "GET") {
         HandleGetWorkspaceStatus(connection_id, ws_id);
+        return;
+      }
+      // Export all workspaces (GET /api/workspaces/export)
+      if (segments.size() == 3 && segments[2] == "export" &&
+          info.method == "GET") {
+        HandleExportWorkspaces(connection_id);
+        return;
+      }
+      // Import workspaces (POST /api/workspaces/import)
+      if (segments.size() == 3 && segments[2] == "import" &&
+          info.method == "POST") {
+        HandleImportWorkspaces(connection_id, info.data);
         return;
       }
       // CDP proxy HTTP endpoints (e.g. /json/version, /json/list)
@@ -648,17 +683,13 @@ void WorkspaceApiHandler::HandleCDPRequest(
     const std::string& ws_id,
     const std::string& subpath,
     const net::HttpServerRequestInfo& info) {
-  // For HTTP CDP endpoints like /json/version and /json/list,
-  // we forward the request to the workspace's CDP port via the proxy.
-  // The CDP proxy can handle both HTTP and WS.
   if (!cdp_proxy_) {
     SendError(connection_id, net::HTTP_NOT_FOUND, "NOT_FOUND",
               "CDP proxy not available");
     return;
   }
 
-  // For now, CDP HTTP endpoints require the workspace to be running.
-  // We look up the CDP port from the workspace manager on the UI thread.
+  // Look up the CDP port and forward the HTTP request to the child.
   auto api_runner = base::SequencedTaskRunner::GetCurrentDefault();
   auto weak_this = weak_factory_.GetWeakPtr();
 
@@ -672,6 +703,158 @@ void WorkspaceApiHandler::HandleCDPRequest(
              base::WeakPtr<WorkspaceApiHandler> weak_this) {
             auto* running = manager->Get(ws_id);
             if (!running || running->status != RunningWorkspace::Status::kRunning) {
+              // Retry once after a delay — the workspace may be restarting.
+              api_runner->PostTask(
+                  FROM_HERE,
+                  base::BindOnce(&WorkspaceApiHandler::RetryCDPRequest,
+                                 weak_this, connection_id, ws_id, subpath,
+                                 info));
+              return;
+            }
+
+            int cdp_port = running->cdp_port;
+
+            // Build a minimal HTTP request to forward to the child CDP.
+            std::string forward_request =
+                info.method + " " + subpath + " HTTP/1.1\r\n" +
+                "Host: 127.0.0.1:" + base::NumberToString(cdp_port) + "\r\n" +
+                "Connection: close\r\n" +
+                "\r\n";
+
+            api_runner->PostTask(
+                FROM_HERE,
+                base::BindOnce(
+                    [](int connection_id, int cdp_port,
+                       std::string forward_request,
+                       base::WeakPtr<WorkspaceApiHandler> weak_this) {
+                      if (!weak_this)
+                        return;
+
+                      // Connect to the child CDP port and send the request.
+                      int sock = socket(AF_INET, SOCK_STREAM, 0);
+                      if (sock < 0) {
+                        weak_this->SendError(
+                            connection_id, net::HTTP_INTERNAL_SERVER_ERROR,
+                            "PROXY_ERROR", "Failed to create socket");
+                        return;
+                      }
+
+                      struct sockaddr_in addr = {};
+                      addr.sin_family = AF_INET;
+                      addr.sin_port = htons(cdp_port);
+                      addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+
+                      struct timeval tv = {2, 0};  // 2s timeout.
+                      setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                      setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+                      if (connect(sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+                        close(sock);
+                        weak_this->SendError(
+                            connection_id, net::HTTP_BAD_GATEWAY,
+                            "PROXY_ERROR", "Failed to connect to child CDP");
+                        return;
+                      }
+
+                      // Send the forwarded request.
+                      send(sock, forward_request.data(),
+                           forward_request.size(), 0);
+
+                      // Read response (up to 64KB).
+                      std::string response;
+                      char buf[4096];
+                      int n;
+                      while ((n = read(sock, buf, sizeof(buf))) > 0) {
+                        response.append(buf, n);
+                      }
+                      close(sock);
+
+                      if (response.empty()) {
+                        weak_this->SendError(
+                            connection_id, net::HTTP_BAD_GATEWAY,
+                            "PROXY_ERROR", "Empty response from child CDP");
+                        return;
+                      }
+
+                      // Parse HTTP status from the first line.
+                      int http_status = net::HTTP_OK;
+                      auto space1 = response.find(' ');
+                      if (space1 != std::string::npos) {
+                        auto space2 = response.find(' ', space1 + 1);
+                        if (space2 != std::string::npos) {
+                          int code = 0;
+                          if (base::StringToInt(
+                                  response.substr(space1 + 1,
+                                                   space2 - space1 - 1),
+                                  &code)) {
+                            http_status = static_cast<net::HttpStatusCode>(code);
+                          }
+                        }
+                      }
+
+                      // Strip HTTP headers and send body as JSON.
+                      auto header_end = response.find("\r\n\r\n");
+                      if (header_end != std::string::npos) {
+                        response = response.substr(header_end + 4);
+                      }
+
+                      // Try to parse as JSON for a clean response.
+                      auto parsed = base::JSONReader::Read(response, base::JSON_PARSE_RFC);
+                      if (parsed && parsed->is_dict()) {
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("data", std::move(*parsed));
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
+                      } else if (parsed && parsed->is_list()) {
+                        // /json/list returns an array.
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("data", std::move(*parsed));
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
+                      } else {
+                        // Non-JSON response: wrap as text.
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("raw", response);
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
+                      }
+                    },
+                    connection_id, cdp_port, std::move(forward_request),
+                    weak_this));
+          },
+          base::Unretained(workspace_manager_), ws_id, subpath, connection_id,
+          info, std::move(api_runner), std::move(weak_this)));
+}
+
+void WorkspaceApiHandler::RetryCDPRequest(
+    int connection_id,
+    const std::string& ws_id,
+    const std::string& subpath,
+    net::HttpServerRequestInfo info) {
+  // Re-check workspace status with a fresh trip to the UI thread.
+  auto api_runner = base::SequencedTaskRunner::GetCurrentDefault();
+  auto weak_this = weak_factory_.GetWeakPtr();
+
+  content::GetUIThreadTaskRunner({})->PostDelayedTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](RunningWorkspaceManager* manager, std::string ws_id,
+             std::string subpath, int connection_id,
+             net::HttpServerRequestInfo info,
+             scoped_refptr<base::SequencedTaskRunner> api_runner,
+             base::WeakPtr<WorkspaceApiHandler> weak_this) {
+            auto* running = manager->Get(ws_id);
+            if (!running || running->status !=
+                                RunningWorkspace::Status::kRunning) {
               api_runner->PostTask(
                   FROM_HERE,
                   base::BindOnce(
@@ -681,37 +864,226 @@ void WorkspaceApiHandler::HandleCDPRequest(
                           weak_this->SendError(
                               connection_id, net::HTTP_BAD_REQUEST,
                               "NOT_RUNNING",
-                              "Workspace is not running");
+                              "Workspace is not running after retry");
                         }
                       },
                       connection_id, weak_this));
               return;
             }
 
-            // Build target URL from the workspace CDP port.
-            std::string target_url =
-                "http://127.0.0.1:" + base::NumberToString(running->cdp_port) +
-                subpath;
+            int cdp_port = running->cdp_port;
+            std::string forward_request =
+                info.method + " " + subpath + " HTTP/1.1\r\n"
+                "Host: 127.0.0.1:" + base::NumberToString(cdp_port) + "\r\n"
+                "Connection: close\r\n"
+                "\r\n";
 
             api_runner->PostTask(
                 FROM_HERE,
                 base::BindOnce(
-                    [](int connection_id, std::string target_url,
+                    [](int connection_id, int cdp_port,
+                       std::string forward_request,
                        base::WeakPtr<WorkspaceApiHandler> weak_this) {
-                      if (weak_this) {
-                        // Stub: For now return the CDP URL so the client
-                        // can connect directly.
+                      if (!weak_this)
+                        return;
+                      int sock = socket(AF_INET, SOCK_STREAM, 0);
+                      if (sock < 0) {
+                        weak_this->SendError(
+                            connection_id, net::HTTP_INTERNAL_SERVER_ERROR,
+                            "PROXY_ERROR", "Failed to create socket");
+                        return;
+                      }
+                      struct sockaddr_in addr = {};
+                      addr.sin_family = AF_INET;
+                      addr.sin_port = htons(cdp_port);
+                      addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+                      struct timeval tv = {2, 0};
+                      setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv,
+                                 sizeof(tv));
+                      setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv,
+                                 sizeof(tv));
+                      if (connect(sock, (struct sockaddr*)&addr,
+                                  sizeof(addr)) < 0) {
+                        close(sock);
+                        weak_this->SendError(
+                            connection_id, net::HTTP_BAD_GATEWAY,
+                            "PROXY_ERROR",
+                            "Failed to connect to child CDP (retry)");
+                        return;
+                      }
+                      send(sock, forward_request.data(),
+                           forward_request.size(), 0);
+                      std::string response;
+                      char buf[4096];
+                      int n;
+                      while ((n = read(sock, buf, sizeof(buf))) > 0) {
+                        response.append(buf, n);
+                      }
+                      close(sock);
+                      if (response.empty()) {
+                        weak_this->SendError(
+                            connection_id, net::HTTP_BAD_GATEWAY,
+                            "PROXY_ERROR",
+                            "Empty response from child CDP (retry)");
+                        return;
+                      }
+                      int http_status = net::HTTP_OK;
+                      auto space1 = response.find(' ');
+                      if (space1 != std::string::npos) {
+                        auto space2 = response.find(' ', space1 + 1);
+                        if (space2 != std::string::npos) {
+                          int code = 0;
+                          if (base::StringToInt(
+                                  response.substr(space1 + 1,
+                                                   space2 - space1 - 1),
+                                  &code)) {
+                            http_status =
+                                static_cast<net::HttpStatusCode>(code);
+                          }
+                        }
+                      }
+                      auto header_end = response.find("\r\n\r\n");
+                      if (header_end != std::string::npos) {
+                        response = response.substr(header_end + 4);
+                      }
+                      auto parsed = base::JSONReader::Read(response, base::JSON_PARSE_RFC);
+                      if (parsed && parsed->is_dict()) {
                         base::DictValue result;
-                        result.Set("webSocketDebuggerUrl",
-                                    target_url);
-                        weak_this->RespondWithStatus(
-                            connection_id, true, std::move(result));
+                        result.Set("success", true);
+                        result.Set("data", std::move(*parsed));
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
+                      } else if (parsed && parsed->is_list()) {
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("data", std::move(*parsed));
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
+                      } else {
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("raw", response);
+                        weak_this->SendJson(
+                            connection_id,
+                            static_cast<net::HttpStatusCode>(http_status),
+                            base::Value(std::move(result)));
                       }
                     },
-                    connection_id, target_url, weak_this));
+                    connection_id, cdp_port, std::move(forward_request),
+                    weak_this));
           },
-          base::Unretained(workspace_manager_), ws_id, subpath, connection_id,
-          info, std::move(api_runner), std::move(weak_this)));
+          base::Unretained(workspace_manager_), ws_id, subpath,
+          connection_id, info, std::move(api_runner), std::move(weak_this)),
+      base::Milliseconds(1000));
+}
+
+void WorkspaceApiHandler::HandleExportWorkspaces(int connection_id) {
+  auto api_runner = base::SequencedTaskRunner::GetCurrentDefault();
+  auto weak_this = weak_factory_.GetWeakPtr();
+
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+          [](WorkspaceStore* store, int connection_id,
+             scoped_refptr<base::SequencedTaskRunner> api_runner,
+             base::WeakPtr<WorkspaceApiHandler> weak_this) {
+            auto workspaces = store->GetAllWorkspaces();
+            base::ListValue list;
+            for (const auto& ws : workspaces) {
+              list.Append(ws.ToDict());
+            }
+            api_runner->PostTask(
+                FROM_HERE,
+                base::BindOnce(
+                    [](int connection_id, base::ListValue data,
+                       base::WeakPtr<WorkspaceApiHandler> weak_this) {
+                      if (weak_this) {
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("data", std::move(data));
+                        weak_this->SendJson(
+                            connection_id, net::HTTP_OK,
+                            base::Value(std::move(result)));
+                      }
+                    },
+                    connection_id, std::move(list), weak_this));
+          },
+          base::Unretained(workspace_store_), connection_id,
+          std::move(api_runner), std::move(weak_this)));
+}
+
+void WorkspaceApiHandler::HandleImportWorkspaces(int connection_id,
+                                                  const std::string& body) {
+  auto parsed = base::JSONReader::Read(body, base::JSON_PARSE_RFC);
+  if (!parsed || !parsed->is_list()) {
+    base::DictValue error;
+    error.Set("code", "INVALID_REQUEST");
+    error.Set("message", "Request body must be a JSON array of workspaces");
+    base::DictValue resp;
+    resp.Set("success", false);
+    resp.Set("error", std::move(error));
+    SendJson(connection_id, net::HTTP_BAD_REQUEST,
+             base::Value(std::move(resp)));
+    return;
+  }
+
+  auto items = std::move(*parsed).TakeList();
+  auto api_runner = base::SequencedTaskRunner::GetCurrentDefault();
+  auto weak_this = weak_factory_.GetWeakPtr();
+
+  content::GetUIThreadTaskRunner({})->PostTask(
+      FROM_HERE,
+      base::BindOnce(
+           [](WorkspaceStore* store, base::ListValue items,
+             int connection_id,
+             scoped_refptr<base::SequencedTaskRunner> api_runner,
+             base::WeakPtr<WorkspaceApiHandler> weak_this) {
+            int imported = 0;
+            int skipped = 0;
+            std::vector<std::string> errors;
+
+            for (auto& item : items) {
+              if (!item.is_dict()) {
+                skipped++;
+                continue;
+              }
+              base::DictValue dict(std::move(item.GetDict()));
+              std::string* name = dict.FindString("name");
+              if (!name || name->empty()) {
+                skipped++;
+                continue;
+              }
+              Workspace ws = Workspace::FromDict(dict);
+              ws.id = Workspace::GenerateId();
+              store->CreateWorkspace(std::move(ws));
+              imported++;
+            }
+
+            base::DictValue data;
+            data.Set("imported", imported);
+            data.Set("skipped", skipped);
+            api_runner->PostTask(
+                FROM_HERE,
+                base::BindOnce(
+                    [](int connection_id, base::DictValue data,
+                       base::WeakPtr<WorkspaceApiHandler> weak_this) {
+                      if (weak_this) {
+                        base::DictValue result;
+                        result.Set("success", true);
+                        result.Set("data", std::move(data));
+                        weak_this->SendJson(
+                            connection_id, net::HTTP_OK,
+                            base::Value(std::move(result)));
+                      }
+                    },
+                    connection_id, std::move(data), weak_this));
+          },
+          base::Unretained(workspace_store_), std::move(items),
+          connection_id, std::move(api_runner), std::move(weak_this)));
 }
 
 }  // namespace purecloak

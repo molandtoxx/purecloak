@@ -21,7 +21,7 @@ source_set("api") {
     "//chrome/browser/profiles:profiles",
     "//content/public/browser",
     "//net",
-    "//purecloak/browser",
+    "//purecloak/browser:launcher",
     "//purecloak/browser/profiles",
     "//purecloak/common",
   ]
@@ -32,6 +32,7 @@ source_set("unit_tests") {
   sources = [ "api_unittest.cc" ]
   deps = [
     ":api",
+    "//purecloak/browser:launcher",
     "//testing/gtest",
   ]
 }

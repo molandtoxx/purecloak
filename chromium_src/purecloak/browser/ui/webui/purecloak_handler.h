@@ -47,6 +47,18 @@ class PureCloakHandler : public content::WebUIMessageHandler,
   void HandleStopWorkspace(const base::ListValue& args);
   void HandleGetWorkspaceStatus(const base::ListValue& args);
 
+  // Phase 4 WebUI handlers.
+  void HandleSearchWorkspaces(const base::ListValue& args);
+  void HandleBatchDeleteWorkspaces(const base::ListValue& args);
+  void HandleBatchLaunchWorkspaces(const base::ListValue& args);
+  void HandleBatchStopWorkspaces(const base::ListValue& args);
+  void HandleGetAllTags(const base::ListValue& args);
+  void HandleProxyTest(const base::ListValue& args);
+  void HandleGetTemplates(const base::ListValue& args);
+  void HandleSaveTemplate(const base::ListValue& args);
+  void HandleDeleteTemplate(const base::ListValue& args);
+  void HandleGetDashboardStats(const base::ListValue& args);
+
  private:
   raw_ptr<::Profile> profile_;
   raw_ptr<WorkspaceStore> workspace_store_;

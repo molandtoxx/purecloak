@@ -7,6 +7,23 @@ import("//purecloak/purecloak.gni")
 
 assert(is_purecloak)
 
+# Launcher target extracted to break circular dependency:
+# browser → api → launcher (no cycle)
+source_set("launcher") {
+  sources = [
+    "workspace_launcher.cc",
+    "workspace_launcher.h",
+    "workspace_launcher_watchdog.cc",
+    "workspace_launcher_watchdog.h",
+  ]
+
+  deps = [
+    "//base",
+    "//content/public/browser",
+    "//purecloak/browser/profiles",
+  ]
+}
+
 source_set("browser") {
   sources = [
     "purecloak_browser_main_parts.cc",
@@ -23,15 +40,12 @@ source_set("browser") {
     "ui/webui/purecloak_handler.h",
     "ui/webui/purecloak_ui.cc",
     "ui/webui/purecloak_ui.h",
-    "workspace_launcher.cc",
-    "workspace_launcher.h",
-    "workspace_launcher_watchdog.cc",
-    "workspace_launcher_watchdog.h",
     "workspace_profile_applier.cc",
     "workspace_profile_applier.h",
   ]
 
   deps = [
+    ":launcher",
     "//base",
     "//chrome/browser/profiles:profiles",
     "//chrome/browser/ui/side_panel",
@@ -55,6 +69,7 @@ source_set("unit_tests") {
   ]
   deps = [
     ":browser",
+    ":launcher",
     "//base",
     "//content/test:test_support",
     "//purecloak/browser/profiles",

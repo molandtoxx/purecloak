@@ -39,6 +39,24 @@ class AntiDetectionEngine {
   std::string GenerateWebRTCProtector() const;
   std::string GenerateWebdriverRemover() const;
 
+  // Phase 0 — P0 anti-detection gap fixes.
+  std::string GenerateHardwareConcurrencyProtector(int hw_concurrency) const;
+  std::string GenerateDeviceMemoryProtector(int device_memory) const;
+  std::string GenerateScreenProtector(int width, int height) const;
+  std::string GenerateTimezoneProtector(const std::string& tz) const;
+  std::string GeneratePlatformProtector(const std::string& platform) const;
+  std::string GenerateColorSchemeProtector(const std::string& scheme) const;
+
+  // Phase 1 — Deep anti-detection reinforcement.
+  std::string GenerateFeatureConsistencyProtector(
+      const std::string& platform) const;
+  std::string GenerateWebGLExtensionFilter(
+      const std::string& gpu_vendor) const;
+  std::string GeneratePerformanceProtector() const;
+  std::string GenerateGeolocationProtector(double lat, double lng) const;
+  std::string GenerateBatteryProtector() const;
+  std::string GenerateNetworkInfoProtector() const;
+
   // Generates the seed-based PRNG JavaScript function.
   // Produces deterministic noise values: same seed+index → same output.
   static std::string GeneratePRNGFunction(int seed);

@@ -26,3 +26,11 @@ Thumbs.db
 
 # Temp files
 *.png
+__pycache__/
+*.pyc
+
+# Symlink to chromium_src
+src/
+
+# External projects
+cloakbrowser-suite/

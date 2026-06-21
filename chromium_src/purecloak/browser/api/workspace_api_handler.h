@@ -29,7 +29,8 @@ class CDPProxyHandler;
 class WorkspaceApiHandler : public net::HttpServer::Delegate {
  public:
   WorkspaceApiHandler(WorkspaceStore* store,
-                      RunningWorkspaceManager* manager);
+                      RunningWorkspaceManager* manager,
+                      const std::string& api_token = "");
   WorkspaceApiHandler(const WorkspaceApiHandler&) = delete;
   WorkspaceApiHandler& operator=(const WorkspaceApiHandler&) = delete;
   ~WorkspaceApiHandler() override;
@@ -67,12 +68,12 @@ class WorkspaceApiHandler : public net::HttpServer::Delegate {
   // GET /api/workspaces
   void HandleGetAllWorkspaces(int connection_id);
   // POST /api/workspaces
-  void HandleCreateWorkspace(int connection_id, base::Value::Dict body);
+  void HandleCreateWorkspace(int connection_id, base::DictValue body);
   // GET /api/workspaces/{id}
   void HandleGetWorkspace(int connection_id, const std::string& ws_id);
   // PUT /api/workspaces/{id}
   void HandleUpdateWorkspace(int connection_id, const std::string& ws_id,
-                             base::Value::Dict body);
+                             base::DictValue body);
   // DELETE /api/workspaces/{id}
   void HandleDeleteWorkspace(int connection_id, const std::string& ws_id);
   // POST /api/workspaces/{id}/launch
@@ -87,19 +88,29 @@ class WorkspaceApiHandler : public net::HttpServer::Delegate {
   // CDP proxy HTTP endpoints (e.g. /json/version, /json/list)
   void HandleCDPRequest(int connection_id, const std::string& ws_id,
                         const std::string& subpath,
-                        const net::HttpServerRequestInfo& info);
+                         const net::HttpServerRequestInfo& info);
+
+  // Import/export handlers.
+  void HandleExportWorkspaces(int connection_id);
+  void HandleImportWorkspaces(int connection_id, const std::string& body);
+
+  // Retry a CDP request once after a delay (Phase 3.3 reconnect).
+  void RetryCDPRequest(int connection_id, const std::string& ws_id,
+                        const std::string& subpath,
+                        net::HttpServerRequestInfo info);
 
   // --- Cross-thread response helpers ---
   // These are called on the API thread after UI thread work completes.
   void RespondWithWorkspaceList(int connection_id,
-                                std::vector<base::Value::Dict> workspaces);
-  void RespondWithWorkspace(int connection_id, std::optional<base::Value::Dict> ws);
+                                std::vector<base::DictValue> workspaces);
+  void RespondWithWorkspace(int connection_id, std::optional<base::DictValue> ws);
   void RespondWithStatus(int connection_id, bool success,
-                         base::Value::Dict data);
+                         base::DictValue data);
 
   raw_ptr<WorkspaceStore> workspace_store_;
   raw_ptr<RunningWorkspaceManager> workspace_manager_;
   raw_ptr<net::HttpServer> server_ = nullptr;
+  std::string api_token_;
 
   std::unique_ptr<CDPProxyHandler> cdp_proxy_;
 

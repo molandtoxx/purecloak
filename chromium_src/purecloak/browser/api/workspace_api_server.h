@@ -27,7 +27,8 @@ class WorkspaceApiHandler;
 class WorkspaceApiServer {
  public:
   WorkspaceApiServer(WorkspaceStore* store,
-                     RunningWorkspaceManager* manager);
+                     RunningWorkspaceManager* manager,
+                     const std::string& api_token = "");
   ~WorkspaceApiServer();
 
   // Start the server on |port|. Returns true on success.
@@ -42,6 +43,7 @@ class WorkspaceApiServer {
  private:
   raw_ptr<WorkspaceStore> workspace_store_;
   raw_ptr<RunningWorkspaceManager> workspace_manager_;
+  std::string api_token_;
 
   std::unique_ptr<WorkspaceApiHandler> handler_;
   std::unique_ptr<net::HttpServer> server_;

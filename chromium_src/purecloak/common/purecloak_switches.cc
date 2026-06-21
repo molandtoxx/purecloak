@@ -8,6 +8,7 @@ namespace purecloak {
 namespace switches {
 
 const char kPureCloakApiPort[] = "purecloak-api-port";
+const char kPureCloakApiToken[] = "purecloak-api-token";
 
 const char kFingerprint[] = "fingerprint";
 const char kFingerprintPlatform[] = "fingerprint-platform";

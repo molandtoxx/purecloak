@@ -174,7 +174,7 @@ async def main():
         print(f"  🔍 Chrome window should now be visible on your screen!")
 
         # ── 1. Open PureCloak WebUI ──
-        step("Opening chrome://purecloak/")
+        step("Opening purecloak://purecloak/")
         page = await browser.new_page()
         console_logs = []
 
@@ -183,7 +183,7 @@ async def main():
             f"[{msg.type}] {msg.text[:200]}"
         ))
 
-        await page.goto("chrome://purecloak/", wait_until="domcontentloaded")
+        await page.goto("purecloak://purecloak/", wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
         await show_page_state(page, "PureCloak loaded")
         await screenshot(page, "01_webui_loaded")

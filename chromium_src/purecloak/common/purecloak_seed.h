@@ -51,8 +51,8 @@ class PureCloakSeed {
 
  private:
   friend class base::NoDestructor<PureCloakSeed>;
-  PureCloakSeed() = default;
-  ~PureCloakSeed() = default;
+  PureCloakSeed();
+  ~PureCloakSeed();
 
   // Platform-aware default helpers.
   static int DefaultScreenWidth(const std::string& platform);

@@ -299,9 +299,9 @@ void RunningWorkspaceManager::Stop(const std::string& ws_id) {
   // Stop watchdog monitoring.
   watchdog_->StopWatching(ws_id);
 
-  // Terminate the process.
+  // Terminate the process (async wait — never block the UI thread).
   if (ws->process.IsValid()) {
-    ws->process.Terminate(0, /*wait=*/true);
+    ws->process.Terminate(0, /*wait=*/false);
   }
 
   // Clean up user-data-dir (configurable; default = delete).

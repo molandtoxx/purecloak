@@ -71,9 +71,9 @@ async def main():
         page = await context.new_page()
 
         try:
-            # ── Screenshot 1: chrome://purecloak/ ──
-            print("\n📸 Screenshot 1: chrome://purecloak/")
-            await page.goto("chrome://purecloak/", wait_until="networkidle", timeout=15000)
+            # ── Screenshot 1: purecloak://purecloak/ ──
+            print("\n📸 Screenshot 1: purecloak://purecloak/")
+            await page.goto("purecloak://purecloak/", wait_until="networkidle", timeout=15000)
             await page.wait_for_timeout(3000)
             await page.screenshot(path=f"{SCREENSHOT_DIR}/01_purecloak_webui.png", full_page=True)
             print(f"  Saved to {SCREENSHOT_DIR}/01_purecloak_webui.png")

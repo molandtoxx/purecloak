@@ -127,13 +127,13 @@ class RunningWorkspaceManager : public base::SupportsUserData::Data {
 
   RunningWorkspaceManager();
 
-  // Builds the command line for the Chrome subprocess.
+  // Builds the command line for the PureCloak subprocess.
   base::CommandLine BuildCommandLine(
       const Workspace& ws,
       const base::FilePath& user_data_dir,
       int cdp_port) const;
 
-  // Gets the Chrome executable path (same binary as the parent process).
+  // Gets the PureCloak executable path (same binary as the parent process).
   base::FilePath GetChromeExecutablePath() const;
 
   // Notifies all observers.

@@ -11,6 +11,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "purecloak/content/anti_detection/anti_detection_engine.h"
+#include "purecloak/content/anti_detection/humanize_engine.h"
 
 namespace purecloak {
 
@@ -180,6 +181,14 @@ std::string ProfileCDPInjector::GenerateInjectionScript(
     if (!protection_script.empty()) {
       script += "\n";
       script += protection_script;
+    }
+
+    HumanizeEngine humanize;
+    std::string humanize_script =
+        humanize.GenerateScript(workspace.human_preset);
+    if (workspace.humanize && !humanize_script.empty()) {
+      script += "\n";
+      script += humanize_script;
     }
   }
 

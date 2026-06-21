@@ -348,6 +348,39 @@
       width: auto;
       margin: 0;
     }
+
+    /* === Phase 4: Dashboard Stats Bar === */
+    .stats-bar { display: flex; gap: 12px; padding: 12px 32px; background: var(--cr-bg-secondary); border-bottom: 1px solid var(--cr-border); }
+    .stat-card { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 8px; border-radius: 8px; background: var(--cr-bg); box-shadow: var(--cr-shadow); }
+    .stat-value { font-size: 24px; font-weight: 600; color: var(--cr-text); }
+    .stat-label { font-size: 11px; color: var(--cr-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+
+    /* === Phase 4: Search / Filter === */
+    .search-bar input { padding: 6px 12px; border: 1px solid var(--cr-border); border-radius: 6px; background: var(--cr-bg); color: var(--cr-text); font-size: 13px; outline: none; width: 220px; }
+    .search-bar input:focus { border-color: var(--cr-primary-color); box-shadow: 0 0 0 2px rgba(26,115,232,.15); }
+
+    /* === Phase 4: Batch Operations === */
+    .batch-bar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--cr-ws-header); border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+    .ws-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: var(--cr-primary-color); margin-right: 8px; flex-shrink: 0; }
+
+    /* === Phase 4: Tag Display === */
+    .ws-tags { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+    .ws-tag { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--cr-primary-color); color: #fff; line-height: 1.6; }
+
+    /* === Phase 4: Fingerprint Preview === */
+    .fp-preview { margin-bottom: 12px; padding: 8px; background: var(--cr-bg-secondary); border-radius: 6px; font-size: 12px; line-height: 1.6; }
+
+    /* === Phase 4: Template Controls === */
+    .template-controls { display: flex; gap: 4px; align-items: center; }
+    .template-controls select { padding: 4px 8px; border: 1px solid var(--cr-border); border-radius: 6px; background: var(--cr-bg); color: var(--cr-text); font-size: 12px; outline: none; max-width: 140px; }
+
+    /* === Phase 4: Select All === */
+    .select-all-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--cr-text-secondary); }
+    .select-all-row input[type="checkbox"] { width: auto; margin: 0; }
+
+    /* === Phase 4: Proxy Test Button === */
+    .proxy-row { display: flex; gap: 8px; align-items: flex-end; }
+    .proxy-row .dialog-field { flex: 1; margin-bottom: 0; }
   </style>
 </head>
 <body>
@@ -355,11 +388,33 @@
     <h1>PureCloak</h1>
     <div class="header-actions">
       <button class="btn btn-primary" id="btnCreateWs">+ New Workspace</button>
+      <button class="btn" id="btnSaveTemplate" style="display:none">Save as Template</button>
+      <div class="template-controls">
+        <select id="templateSelect">
+          <option value="">Load Template...</option>
+        </select>
+        <button class="btn btn-sm btn-danger" id="btnDelTemplate" style="display:none">Delete</button>
+      </div>
     </div>
+  </div>
+  <div class="stats-bar" id="statsBar">
+    <div class="stat-card"><span class="stat-value" id="statTotal">0</span><span class="stat-label">Total</span></div>
+    <div class="stat-card"><span class="stat-value" id="statRunning">0</span><span class="stat-label">Running</span></div>
+    <div class="stat-card"><span class="stat-value" id="statFingerprint">0</span><span class="stat-label">Fingerprint</span></div>
+    <div class="stat-card"><span class="stat-value" id="statNormal">0</span><span class="stat-label">Normal</span></div>
   </div>
   <div class="main">
     <div class="section-header">
       <h2>Workspaces</h2>
+      <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="Search workspaces...">
+      </div>
+    </div>
+    <div class="batch-bar" id="batchBar" style="display:none">
+      <span id="batchCount">0 selected</span>
+      <button class="btn btn-sm btn-launch" id="batchLaunch">Launch Selected</button>
+      <button class="btn btn-sm btn-stop" id="batchStop">Stop Selected</button>
+      <button class="btn btn-sm btn-danger" id="batchDelete">Delete Selected</button>
     </div>
     <div id="workspaceList"></div>
     <div id="emptyState" class="empty-state" style="display:none">
@@ -386,6 +441,10 @@
           <option value="normal">Normal</option>
           <option value="fingerprint">Fingerprint</option>
         </select>
+      </div>
+      <div class="dialog-field">
+        <label>Tags</label>
+        <input type="text" id="wsTags" placeholder="tag1, tag2, ...">
       </div>
 
       <details class="collapse-section">
@@ -433,9 +492,12 @@
       <details class="collapse-section">
         <summary>Network Settings</summary>
         <div class="collapse-content">
-          <div class="dialog-field">
-            <label>Proxy</label>
-            <input type="text" id="wsProxy" placeholder="http://user:pass@host:port">
+          <div class="proxy-row">
+            <div class="dialog-field">
+              <label>Proxy</label>
+              <input type="text" id="wsProxy" placeholder="http://user:pass@host:port">
+            </div>
+            <button class="btn btn-sm" id="testCreateProxy">Test</button>
           </div>
           <div class="dialog-field">
             <label>Timezone</label>
@@ -494,6 +556,10 @@
         <label>Name</label>
         <input type="text" id="editWsNameInput" autofocus>
       </div>
+      <div class="dialog-field">
+        <label>Tags</label>
+        <input type="text" id="editWsTags" placeholder="tag1, tag2, ...">
+      </div>
 
       <details class="collapse-section">
         <summary>Fingerprint Settings</summary>
@@ -534,15 +600,22 @@
               <option value="no-preference">No Preference</option>
             </select>
           </div>
+          <div class="fp-preview" id="editWsFpPreview" style="display:none">
+            <strong>Fingerprint Preview:</strong><br>
+            <span id="editWsFpPreviewContent"></span>
+          </div>
         </div>
       </details>
 
       <details class="collapse-section">
         <summary>Network Settings</summary>
         <div class="collapse-content">
-          <div class="dialog-field">
-            <label>Proxy</label>
-            <input type="text" id="editWsProxy" placeholder="http://user:pass@host:port">
+          <div class="proxy-row">
+            <div class="dialog-field">
+              <label>Proxy</label>
+              <input type="text" id="editWsProxy" placeholder="http://user:pass@host:port">
+            </div>
+            <button class="btn btn-sm" id="testEditProxy">Test</button>
           </div>
           <div class="dialog-field">
             <label>Timezone</label>
@@ -716,6 +789,34 @@
         'Save': '保存',
         'Workspace saved': '工作区已保存',
         'Failed to save workspace': '保存工作区失败',
+        'Total': '总计',
+        'Running': '运行中',
+        'Fingerprint': '指纹',
+        'Normal': '普通',
+        'Search workspaces...': '搜索工作区...',
+        'Launch Selected': '启动选中',
+        'Stop Selected': '停止选中',
+        'Delete Selected': '删除选中',
+        'Save as Template': '保存为模板',
+        'Load Template...': '加载模板...',
+        'Tags': '标签',
+        'Template saved': '模板已保存',
+        'Template loaded': '模板已加载',
+        'Template deleted': '模板已删除',
+        'Save template failed': '保存模板失败',
+        'Load template failed': '加载模板失败',
+        'Delete template failed': '删除模板失败',
+        'Proxy OK': '代理连接正常',
+        'Proxy failed': '代理连接失败',
+        'Proxy test error': '代理测试错误',
+        'Please enter a proxy URL': '请输入代理地址',
+        'Testing...': '测试中...',
+        'Fingerprint Preview:': '指纹预览：',
+        'Template name:': '模板名称：',
+        'Delete this template?': '删除此模板？',
+        'selected': '已选择',
+        'Test': '测试',
+        'Delete': '删除',
       }
     };
     for (const [lang, data] of Object.entries(LOCALE_DATA)) {
@@ -782,6 +883,46 @@
       document.getElementById('deleteDialogTitle').textContent = t('Confirm Delete');
       document.getElementById('cancelDelete').textContent = t('Cancel');
       document.getElementById('confirmDelete').textContent = t('Delete');
+
+      // Phase 4: Stats bar
+      const statLabels = document.querySelectorAll('.stat-label');
+      if (statLabels.length >= 4) {
+        statLabels[0].textContent = t('Total');
+        statLabels[1].textContent = t('Running');
+        statLabels[2].textContent = t('Fingerprint');
+        statLabels[3].textContent = t('Normal');
+      }
+
+      // Phase 4: Search placeholder
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) searchInput.placeholder = t('Search workspaces...');
+
+      // Phase 4: Batch bar
+      document.getElementById('batchLaunch').textContent = t('Launch Selected');
+      document.getElementById('batchStop').textContent = t('Stop Selected');
+      document.getElementById('batchDelete').textContent = t('Delete Selected');
+
+      // Phase 4: Template controls
+      const saveTmplBtn = document.getElementById('btnSaveTemplate');
+      if (saveTmplBtn) saveTmplBtn.textContent = t('Save as Template');
+      const tmplSelect = document.getElementById('templateSelect');
+      if (tmplSelect && tmplSelect.options[0]) tmplSelect.options[0].textContent = t('Load Template...');
+      const delTmplBtn = document.getElementById('btnDelTemplate');
+      if (delTmplBtn) delTmplBtn.textContent = t('Delete');
+
+      // Phase 4: Create dialog labels (tags, type, etc.)
+      const createLabels = document.querySelectorAll('#createWsDialog .dialog-field label');
+      if (createLabels.length >= 3) createLabels[2].textContent = t('Tags');
+
+      // Phase 4: Edit dialog labels
+      const editLabels = document.querySelectorAll('#editWsDialog .dialog-field label');
+      if (editLabels.length >= 2) editLabels[1].textContent = t('Tags');
+
+      // Phase 4: Proxy test buttons
+      const testCreateBtn = document.getElementById('testCreateProxy');
+      if (testCreateBtn) testCreateBtn.textContent = t('Test');
+      const testEditBtn = document.getElementById('testEditProxy');
+      if (testEditBtn) testEditBtn.textContent = t('Test');
     }
 
     // --- Data loading ---
@@ -803,7 +944,100 @@
       });
     }
 
+    // --- Phase 4: Dashboard Stats ---
+    async function loadDashboardStats() {
+      try {
+        const stats = await sendAsync('getDashboardStats');
+        if (stats) {
+          document.getElementById('statTotal').textContent = stats.total || 0;
+          document.getElementById('statRunning').textContent = stats.running || 0;
+          document.getElementById('statFingerprint').textContent = stats.fingerprint || 0;
+          document.getElementById('statNormal').textContent = stats.normal || 0;
+        }
+      } catch(e) {
+        // Stats not available in all builds
+      }
+    }
+
+    // --- Phase 4: Search / Filter ---
+    let searchTimer = null;
+    function setupSearch() {
+      const input = document.getElementById('searchInput');
+      if (!input) return;
+      input.addEventListener('input', () => {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+          const query = input.value.trim();
+          if (!query) {
+            render();
+            return;
+          }
+          // Client-side filtering (fallback) + server-side search
+          const filtered = workspaces.filter(ws =>
+            (ws.name && ws.name.toLowerCase().includes(query.toLowerCase())) ||
+            (ws.tags && ws.tags.some(t => (t.tag || t).toLowerCase().includes(query.toLowerCase())))
+          );
+          const container = document.getElementById('workspaceList');
+          const empty = document.getElementById('emptyState');
+          if (filtered.length === 0) {
+            container.innerHTML = '';
+            empty.style.display = '';
+            updateBatchBar();
+            return;
+          }
+          empty.style.display = 'none';
+          let html = '';
+          for (const ws of filtered) {
+            html += renderWorkspaceCard(ws);
+          }
+          container.innerHTML = html;
+          updateBatchBar();
+        }, 300);
+      });
+    }
+
+    // --- Phase 4: Batch Operations ---
+    function updateBatchBar() {
+      const checkboxes = document.querySelectorAll('.ws-checkbox:checked');
+      const count = checkboxes.length;
+      const bar = document.getElementById('batchBar');
+      const countEl = document.getElementById('batchCount');
+      if (count > 0) {
+        bar.style.display = 'flex';
+        countEl.textContent = count + ' selected';
+      } else {
+        bar.style.display = 'none';
+      }
+    }
+
+    function getSelectedIds() {
+      return Array.from(document.querySelectorAll('.ws-checkbox:checked'))
+        .map(cb => cb.getAttribute('data-ws-id'));
+    }
+
+    // --- Phase 4: Template Management ---
+    async function loadTemplates() {
+      try {
+        const templates = await sendAsync('getTemplates');
+        const select = document.getElementById('templateSelect');
+        select.innerHTML = '<option value="">Load Template...</option>';
+        if (templates && templates.length) {
+          templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id || t.name;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+          });
+        }
+      } catch(e) {}
+    }
+
     // --- Rendering ---
+    function renderTagPills(tags) {
+      if (!tags || !tags.length) return '';
+      return tags.map(t => `<span class="ws-tag">${escapeHtml(t.tag || t)}</span>`).join('');
+    }
+
     function render() {
       const container = document.getElementById('workspaceList');
       const empty = document.getElementById('emptyState');
@@ -811,6 +1045,7 @@
       if (workspaces.length === 0) {
         container.innerHTML = '';
         empty.style.display = '';
+        updateBatchBar();
         return;
       }
       empty.style.display = 'none';
@@ -824,13 +1059,16 @@
         const created = ws.created_at ? new Date(ws.created_at).toLocaleDateString() : '';
         const escId = escapeHtmlAttr(ws.id);
         const escName = escapeHtmlAttr(ws.name);
+        const tagPills = renderTagPills(ws.tags);
 
         html += `<div class="ws-card" data-ws-id="${escId}">
           <div class="ws-header">
+            <input type="checkbox" class="ws-checkbox" data-ws-id="${escId}" onchange="updateBatchBar()">
             <div class="ws-icon ${iconClass}">${icon}</div>
             <div class="ws-info">
               <div class="ws-name">${escapeHtml(ws.name)}</div>
               <div class="ws-meta">${typeLabel}${created ? ' \u00b7 ' + t('Created') + ' ' + created : ''}</div>
+              ${tagPills ? '<div class="ws-tags">' + tagPills + '</div>' : ''}
             </div>
             <div class="ws-actions">
               <button class="btn btn-sm btn-launch" title="${t('Launch')}" onclick="launchWorkspace('${escId}')">\u25b6 ${t('Launch')}</button>
@@ -844,6 +1082,7 @@
         </div>`;
       }
       container.innerHTML = html;
+      updateBatchBar();
     }
 
     function escapeHtml(s) {
@@ -854,6 +1093,180 @@
     function escapeHtmlAttr(s) {
       if (!s) return '';
       return escapeHtml(s).replace(/'/g,'&#39;').replace(/\n/g,'&#10;');
+    }
+
+    // --- Phase 4: Individual workspace card renderer (for search) ---
+    function renderWorkspaceCard(ws) {
+      const isFingerprint = ws.type === 'fingerprint';
+      const typeLabel = isFingerprint ? t('Fingerprint') : t('Normal');
+      const iconClass = isFingerprint ? 'fingerprint' : 'normal';
+      const icon = isFingerprint ? '\u{1f575}' : '\u{1f4c1}';
+      const created = ws.created_at ? new Date(ws.created_at).toLocaleDateString() : '';
+      const escId = escapeHtmlAttr(ws.id);
+      const escName = escapeHtmlAttr(ws.name);
+      const tagPills = renderTagPills(ws.tags);
+      return `<div class="ws-card" data-ws-id="${escId}">
+          <div class="ws-header">
+            <input type="checkbox" class="ws-checkbox" data-ws-id="${escId}" onchange="updateBatchBar()">
+            <div class="ws-icon ${iconClass}">${icon}</div>
+            <div class="ws-info">
+              <div class="ws-name">${escapeHtml(ws.name)}</div>
+              <div class="ws-meta">${typeLabel}${created ? ' \u00b7 ' + t('Created') + ' ' + created : ''}</div>
+              ${tagPills ? '<div class="ws-tags">' + tagPills + '</div>' : ''}
+            </div>
+            <div class="ws-actions">
+              <button class="btn btn-sm btn-launch" title="${t('Launch')}" onclick="launchWorkspace('${escId}')">\u25b6 ${t('Launch')}</button>
+              <button class="btn-icon" title="${t('Edit')}" onclick="showEditWs('${escId}')">\u270f\ufe0f</button>
+              <button class="btn-icon" title="${t('Delete')}" onclick="showDeleteWs('${escId}','${escName}')">\ud83d\uddd1\ufe0f</button>
+            </div>
+          </div>
+          <div class="ws-status" id="ws-status-${escId}">
+            <span class="status-indicator stopped">○ ${t('Stopped')}</span>
+          </div>
+        </div>`;
+    }
+
+    // --- Phase 4: Fingerprint Preview ---
+    function updateFingerprintPreview(prefix) {
+      const preview = document.getElementById(prefix + 'FpPreview');
+      const content = document.getElementById(prefix + 'FpPreviewContent');
+      if (!preview || !content) return;
+      const ua = document.getElementById(prefix + 'UserAgent').value.trim();
+      const sw = document.getElementById(prefix + 'ScreenWidth').value || '1920';
+      const sh = document.getElementById(prefix + 'ScreenHeight').value || '1080';
+      const hw = document.getElementById(prefix + 'HwConcurrency').value || '0';
+      const plat = document.getElementById(prefix + 'Platform').value || 'auto';
+      const cs = document.getElementById(prefix + 'ColorScheme').value || 'auto';
+      if (!ua && hw === '0' && plat === 'auto' && cs === 'auto') {
+        preview.style.display = 'none';
+        return;
+      }
+      let parts = [];
+      if (ua) parts.push('UA: ' + ua.substring(0, 40) + (ua.length > 40 ? '...' : ''));
+      parts.push('Screen: ' + sw + 'x' + sh);
+      if (hw !== '0') parts.push('Concurrency: ' + hw);
+      if (plat !== 'auto') parts.push('Platform: ' + plat);
+      if (cs !== 'auto') parts.push('Color: ' + cs);
+      content.textContent = parts.join(' | ');
+      preview.style.display = '';
+    }
+
+    function setupFingerprintPreview(prefix) {
+      const fields = [prefix + 'UserAgent', prefix + 'ScreenWidth', prefix + 'ScreenHeight',
+                      prefix + 'HwConcurrency', prefix + 'Platform', prefix + 'ColorScheme',
+                      prefix + 'Timezone', prefix + 'Locale'];
+      fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('input', () => updateFingerprintPreview(prefix));
+        if (el) el.addEventListener('change', () => updateFingerprintPreview(prefix));
+      });
+    }
+
+    // --- Phase 4: Proxy Test ---
+    function setupProxyTest(btnId, inputId) {
+      const btn = document.getElementById(btnId);
+      const input = document.getElementById(inputId);
+      if (!btn || !input) return;
+      btn.addEventListener('click', async () => {
+        const url = input.value.trim();
+        if (!url) { showToast('Please enter a proxy URL'); return; }
+        btn.textContent = 'Testing...';
+        btn.disabled = true;
+        try {
+          const result = await sendAsync('proxyTest', url);
+          if (result && result.success) {
+            showToast('Proxy OK: ' + (result.latency_ms || '') + 'ms');
+          } else {
+            showToast('Proxy failed: ' + (result && result.error ? result.error : 'Unknown error'));
+          }
+        } catch (e) {
+          showToast('Proxy test error: ' + e.message);
+        }
+        btn.textContent = 'Test';
+        btn.disabled = false;
+      });
+    }
+
+    // --- Phase 4: Keyboard Shortcuts ---
+    function setupKeyboardShortcuts() {
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.key === 'n') {
+          e.preventDefault();
+          document.getElementById('btnCreateWs').click();
+        }
+        if (e.ctrlKey && e.key === 'f') {
+          e.preventDefault();
+          const searchInput = document.getElementById('searchInput');
+          if (searchInput) searchInput.focus();
+        }
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.dialog-overlay.active').forEach(d => d.classList.remove('active'));
+        }
+        if (e.key === 'Delete' && document.querySelectorAll('.ws-checkbox:checked').length > 0) {
+          const deleteBtn = document.getElementById('batchDelete');
+          if (deleteBtn) deleteBtn.click();
+        }
+      });
+    }
+
+    // --- Phase 4: Template Save/Load ---
+    function setupTemplateControls() {
+      const saveBtn = document.getElementById('btnSaveTemplate');
+      const loadSelect = document.getElementById('templateSelect');
+      const delBtn = document.getElementById('btnDelTemplate');
+
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const name = prompt('Template name:');
+          if (!name) return;
+          try {
+            await sendAsync('saveTemplate', { name, workspaces });
+            showToast('Template saved');
+            loadTemplates();
+          } catch(e) {
+            showToast('Save template failed: ' + e.message);
+          }
+        });
+      }
+
+      if (loadSelect) {
+        loadSelect.addEventListener('change', async () => {
+          const val = loadSelect.value;
+          if (!val) {
+            delBtn.style.display = 'none';
+            return;
+          }
+          delBtn.style.display = '';
+          try {
+            const tmpl = await sendAsync('getTemplate', val);
+            if (tmpl && tmpl.workspaces) {
+              workspaces = tmpl.workspaces;
+              render();
+              showToast('Template loaded');
+            }
+          } catch(e) {
+            showToast('Load template failed: ' + e.message);
+          }
+          loadSelect.value = '';
+        });
+      }
+
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          const val = loadSelect.value;
+          if (!val) return;
+          if (!confirm('Delete this template?')) return;
+          try {
+            await sendAsync('deleteTemplate', val);
+            showToast('Template deleted');
+            loadTemplates();
+            delBtn.style.display = 'none';
+          } catch(e) {
+            showToast('Delete template failed: ' + e.message);
+          }
+          loadSelect.value = '';
+        });
+      }
     }
 
     // --- Workspace CRUD ---
@@ -873,6 +1286,7 @@
       document.getElementById('wsHeadless').checked = false;
       document.getElementById('wsClipboardSync').checked = true;
       document.getElementById('wsAutoLaunch').checked = false;
+      document.getElementById('wsTags').value = '';
       // Close all collapse sections by default
       document.querySelectorAll('#createWsDialog .collapse-section').forEach(s => s.removeAttribute('open'));
       document.getElementById('createWsDialog').classList.add('active');
@@ -883,6 +1297,8 @@
     });
 
     function collectWsFormData(prefix) {
+      const tagsInput = document.getElementById(prefix + 'Tags');
+      const tags = tagsInput ? tagsInput.value.trim() : '';
       return {
         name: document.getElementById(prefix + 'NameInput').value.trim(),
         type: document.getElementById(prefix + 'TypeSelect').value,
@@ -899,6 +1315,7 @@
         headless: document.getElementById(prefix + 'Headless').checked,
         clipboard_sync: document.getElementById(prefix + 'ClipboardSync').checked,
         auto_launch: document.getElementById(prefix + 'AutoLaunch').checked,
+        tags: tags ? tags.split(',').map(s => ({ tag: s.trim() })).filter(t => t.tag) : [],
       };
     }
 
@@ -935,6 +1352,13 @@
       document.getElementById('editWsHeadless').checked = !!ws.headless;
       document.getElementById('editWsClipboardSync').checked = ws.clipboard_sync !== false;
       document.getElementById('editWsAutoLaunch').checked = !!ws.auto_launch;
+      // Tags
+      const editTagsEl = document.getElementById('editWsTags');
+      if (editTagsEl) {
+        editTagsEl.value = (ws.tags && ws.tags.length) ? ws.tags.map(t => t.tag || t).join(', ') : '';
+      }
+      // Fingerprint preview
+      updateFingerprintPreview('editWs');
       // Close all collapse sections by default
       document.querySelectorAll('#editWsDialog .collapse-section').forEach(s => s.removeAttribute('open'));
       document.getElementById('editWsDialog').classList.add('active');
@@ -981,6 +1405,35 @@
         console.error('delete failed:', e);
         showToast(t('Workspace deleted') + ': ' + e.message);
       }
+    });
+
+    // --- Phase 4: Batch Operations Handlers ---
+    document.getElementById('batchLaunch').addEventListener('click', async () => {
+      const ids = getSelectedIds();
+      for (const id of ids) {
+        await launchWorkspace(id);
+      }
+      updateBatchBar();
+    });
+    document.getElementById('batchStop').addEventListener('click', async () => {
+      const ids = getSelectedIds();
+      for (const id of ids) {
+        await stopWorkspace(id);
+      }
+      updateBatchBar();
+    });
+    document.getElementById('batchDelete').addEventListener('click', async () => {
+      const ids = getSelectedIds();
+      if (!ids.length) return;
+      if (!confirm('Delete ' + ids.length + ' selected workspace(s)?')) return;
+      try {
+        await sendAsync('batchDeleteWorkspaces', ids);
+        showToast(ids.length + ' workspace(s) deleted');
+        await loadWorkspaces();
+      } catch (e) {
+        showToast('Batch delete failed: ' + e.message);
+      }
+      updateBatchBar();
     });
 
     // --- Workspace Launch & Status ---
@@ -1079,6 +1532,14 @@
     document.addEventListener('DOMContentLoaded', () => {
       applyLocale();
       loadWorkspaces();
+      loadDashboardStats();
+      setupSearch();
+      setupKeyboardShortcuts();
+      setupTemplateControls();
+      loadTemplates();
+      setupProxyTest('testCreateProxy', 'wsProxy');
+      setupProxyTest('testEditProxy', 'editWsProxy');
+      setupFingerprintPreview('editWs');
     });
   </script>
 </body>

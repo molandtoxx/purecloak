@@ -19,28 +19,12 @@
 
 namespace purecloak {
 
-namespace {
-
-// Traffic annotation for internal PureCloak API traffic.
-constexpr net::NetworkTrafficAnnotationTag kTrafficAnnotation =
-    net::DefineNetworkTrafficAnnotation("purecloak_api", R"(
-      semantics {
-        sender: "PureCloak API"
-        description: "Internal REST API for workspace management"
-        trigger: "External tool connects to the PureCloak API port"
-        data: "Workspace configuration and status data"
-        destination: LOCAL
-      }
-      policy {
-        cookies_allowed: NO
-      })");
-
-}  // namespace
-
 WorkspaceApiServer::WorkspaceApiServer(
     WorkspaceStore* store,
-    RunningWorkspaceManager* manager)
-    : workspace_store_(store), workspace_manager_(manager) {
+    RunningWorkspaceManager* manager,
+    const std::string& api_token)
+    : workspace_store_(store), workspace_manager_(manager),
+      api_token_(api_token) {
   DCHECK(workspace_store_);
   DCHECK(workspace_manager_);
 }
@@ -55,27 +39,32 @@ bool WorkspaceApiServer::Start(int port) {
     return false;
   }
 
-  // Create background thread for the API server.
+  // Create background thread for the API server (needs IO message loop for
+  // net::HttpServer).
   thread_ = std::make_unique<base::Thread>("PureCloakAPI");
-  if (!thread_->Start()) {
+  base::Thread::Options thread_options;
+  thread_options.message_pump_type = base::MessagePumpType::IO;
+  if (!thread_->StartWithOptions(std::move(thread_options))) {
     LOG(ERROR) << "Failed to start PureCloak API thread";
     return false;
   }
 
-  // Create handler on the current thread. The handler will be moved to and
-  // live on the API thread after server creation.
-  handler_ = std::make_unique<WorkspaceApiHandler>(
-      workspace_store_, workspace_manager_);
-
   // Create the server on the API thread synchronously so we know the result.
+  // Handler is also created on the API thread so its SEQUENCE_CHECKER binds
+  // to the correct sequence.
   base::WaitableEvent done;
   thread_->task_runner()->PostTask(
       FROM_HERE,
       base::BindOnce(
-          [](std::unique_ptr<WorkspaceApiHandler> handler, int port,
+          [](WorkspaceStore* store, RunningWorkspaceManager* manager,
+             int port,
              std::unique_ptr<net::HttpServer>* out_server,
              std::unique_ptr<WorkspaceApiHandler>* out_handler,
-             int* out_port, base::WaitableEvent* done) {
+             int* out_port, base::WaitableEvent* done,
+             const std::string& api_token) {
+            auto handler = std::make_unique<WorkspaceApiHandler>(
+                store, manager, api_token);
+
             // Create a TCP server socket bound to 127.0.0.1.
             auto socket = std::make_unique<net::TCPServerSocket>(
                 nullptr, net::NetLogSource());
@@ -101,7 +90,9 @@ bool WorkspaceApiServer::Start(int port) {
             *out_port = port;
             done->Signal();
           },
-          std::move(handler_), port, &server_, &handler_, &port_, &done));
+          base::Unretained(workspace_store_),
+          base::Unretained(workspace_manager_),
+          port, &server_, &handler_, &port_, &done, api_token_));
   done.Wait();
 
   if (port_ == 0) {

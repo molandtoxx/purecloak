@@ -191,7 +191,7 @@ async def test_webui_workspace(browser):
 
     # Navigate to PureCloak WebUI
     try:
-        response = await page.goto("chrome://purecloak/", wait_until="domcontentloaded", timeout=10000)
+        response = await page.goto("purecloak://purecloak/", wait_until="domcontentloaded", timeout=10000)
         record("WebUI", "chrome://purecloak loads", response is not None and response.status == 200,
                f"status={response.status if response else 'None'}")
     except Exception as e:
@@ -288,7 +288,7 @@ async def test_profile_management(browser):
     print("\n📋 Section: Profile Management (PRD §3.2)")
 
     page = await browser.new_page()
-    await page.goto("chrome://purecloak/", wait_until="domcontentloaded", timeout=10000)
+    await page.goto("purecloak://purecloak/", wait_until="domcontentloaded", timeout=10000)
     await page.wait_for_timeout(2000)
 
     try:

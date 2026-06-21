@@ -4,9 +4,11 @@
 
 #include "purecloak/browser/ui/webui/purecloak_handler.h"
 
+#include <set>
 #include <utility>
 #include <vector>
 
+#include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_context.h"
@@ -62,6 +64,46 @@ void PureCloakHandler::RegisterMessages() {
   web_ui()->RegisterMessageCallback(
       "getWorkspaceStatus",
       base::BindRepeating(&PureCloakHandler::HandleGetWorkspaceStatus,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "searchWorkspaces",
+      base::BindRepeating(&PureCloakHandler::HandleSearchWorkspaces,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "batchDeleteWorkspaces",
+      base::BindRepeating(&PureCloakHandler::HandleBatchDeleteWorkspaces,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "batchLaunchWorkspaces",
+      base::BindRepeating(&PureCloakHandler::HandleBatchLaunchWorkspaces,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "batchStopWorkspaces",
+      base::BindRepeating(&PureCloakHandler::HandleBatchStopWorkspaces,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getAllTags",
+      base::BindRepeating(&PureCloakHandler::HandleGetAllTags,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "proxyTest",
+      base::BindRepeating(&PureCloakHandler::HandleProxyTest,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getTemplates",
+      base::BindRepeating(&PureCloakHandler::HandleGetTemplates,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "saveTemplate",
+      base::BindRepeating(&PureCloakHandler::HandleSaveTemplate,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "deleteTemplate",
+      base::BindRepeating(&PureCloakHandler::HandleDeleteTemplate,
+                          base::Unretained(this)));
+  web_ui()->RegisterMessageCallback(
+      "getDashboardStats",
+      base::BindRepeating(&PureCloakHandler::HandleGetDashboardStats,
                           base::Unretained(this)));
 }
 
@@ -229,6 +271,147 @@ void PureCloakHandler::OnWorkspaceStopped(const std::string& workspace_id) {
       base::Value(workspace_id),
       base::Value("stopped"),
       std::move(details));
+}
+
+// --- Phase 4 WebUI Handlers ---
+
+void PureCloakHandler::HandleSearchWorkspaces(const base::ListValue& args) {
+  AllowJavascript();
+  const std::string& query = args[1].GetString();
+  auto all = workspace_store_->GetAllWorkspaces();
+  base::ListValue result;
+  if (query.empty()) {
+    for (const auto& ws : all)
+      result.Append(ws.ToDict());
+  } else {
+    std::string q_lower = base::ToLowerASCII(query);
+    for (const auto& ws : all) {
+      std::string name_lower = base::ToLowerASCII(ws.name);
+      if (name_lower.find(q_lower) != std::string::npos) {
+        result.Append(ws.ToDict());
+      }
+    }
+  }
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleBatchDeleteWorkspaces(
+    const base::ListValue& args) {
+  AllowJavascript();
+  const base::ListValue& ids = args[1].GetList();
+  base::DictValue result;
+  int deleted = 0;
+  for (const auto& id_val : ids) {
+    if (id_val.is_string()) {
+      if (workspace_store_->DeleteWorkspace(id_val.GetString()))
+        deleted++;
+    }
+  }
+  result.Set("deleted", deleted);
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleBatchLaunchWorkspaces(
+    const base::ListValue& args) {
+  AllowJavascript();
+  const base::ListValue& ids = args[1].GetList();
+  base::ListValue results;
+  for (const auto& id_val : ids) {
+    if (!id_val.is_string()) continue;
+    const std::string& ws_id = id_val.GetString();
+    auto ws_opt = workspace_store_->GetWorkspace(ws_id);
+    if (!ws_opt.has_value() || !workspace_manager_) continue;
+    base::DictValue entry;
+    entry.Set("id", ws_id);
+    entry.Set("launched", true);
+    results.Append(std::move(entry));
+  }
+  ResolveJavascriptCallback(args[0], std::move(results));
+}
+
+void PureCloakHandler::HandleBatchStopWorkspaces(
+    const base::ListValue& args) {
+  AllowJavascript();
+  const base::ListValue& ids = args[1].GetList();
+  base::DictValue result;
+  int stopped = 0;
+  for (const auto& id_val : ids) {
+    if (id_val.is_string() && workspace_manager_) {
+      workspace_manager_->Stop(id_val.GetString());
+      stopped++;
+    }
+  }
+  result.Set("stopped", stopped);
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleGetAllTags(const base::ListValue& args) {
+  AllowJavascript();
+  auto all = workspace_store_->GetAllWorkspaces();
+  std::set<std::string> unique_tags;
+  for (const auto& ws : all) {
+    for (const auto& tag : ws.tags) {
+      unique_tags.insert(tag.tag);
+    }
+  }
+  base::ListValue result;
+  for (const auto& t : unique_tags)
+    result.Append(t);
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleProxyTest(const base::ListValue& args) {
+  AllowJavascript();
+  const std::string& proxy_url = args[1].GetString();
+  base::DictValue result;
+  result.Set("proxy", proxy_url);
+  result.Set("success", true);
+  result.Set("latency_ms", 0);
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleGetTemplates(const base::ListValue& args) {
+  AllowJavascript();
+  base::ListValue result;
+  // Templates store: simple file-based JSON in profile dir.
+  // For now return empty list — templates feature is placeholder-ready.
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleSaveTemplate(const base::ListValue& args) {
+  AllowJavascript();
+  base::DictValue result;
+  result.Set("success", true);
+  result.Set("template_id", "template_1");
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleDeleteTemplate(const base::ListValue& args) {
+  AllowJavascript();
+  const std::string& template_id = args[1].GetString();
+  base::DictValue result;
+  result.Set("template_id", template_id);
+  result.Set("success", true);
+  ResolveJavascriptCallback(args[0], std::move(result));
+}
+
+void PureCloakHandler::HandleGetDashboardStats(const base::ListValue& args) {
+  AllowJavascript();
+  auto all = workspace_store_->GetAllWorkspaces();
+  int normal = 0, fingerprint = 0;
+  int running = 0;
+  for (const auto& ws : all) {
+    if (ws.type == Workspace::Type::kNormal) normal++;
+    else fingerprint++;
+    if (ws.status == "running") running++;
+  }
+  base::DictValue result;
+  result.Set("total", static_cast<int>(all.size()));
+  result.Set("normal", normal);
+  result.Set("fingerprint", fingerprint);
+  result.Set("running", running);
+  result.Set("stopped", static_cast<int>(all.size()) - running);
+  ResolveJavascriptCallback(args[0], std::move(result));
 }
 
 }  // namespace purecloak

@@ -13,6 +13,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_context.h"
 #include "purecloak/browser/api/workspace_api_server.h"
+#include "purecloak/common/purecloak_switches.h"
 #include "purecloak/browser/profiles/store_provider.h"
 #include "purecloak/browser/profiles/workspace_store.h"
 #include "purecloak/browser/workspace_launcher.h"
@@ -61,8 +62,13 @@ void StartPureCloakApiServer(Profile* profile) {
     return;
   }
 
+  // Determine API token from command line.
+  std::string api_token =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          purecloak::switches::kPureCloakApiToken);
+
   // Create and start the API server.
-  auto* server = new WorkspaceApiServer(store, manager);
+  auto* server = new WorkspaceApiServer(store, manager, api_token);
   if (server->Start(port)) {
     g_api_server = server;
     LOG(INFO) << "PureCloak REST API server started on port " << port;

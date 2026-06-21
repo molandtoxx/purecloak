@@ -11,6 +11,9 @@
 
 namespace purecloak {
 
+PureCloakSeed::PureCloakSeed() = default;
+PureCloakSeed::~PureCloakSeed() = default;
+
 // static
 PureCloakSeed* PureCloakSeed::GetInstance() {
   static base::NoDestructor<PureCloakSeed> instance;
